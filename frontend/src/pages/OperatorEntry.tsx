@@ -47,7 +47,8 @@ export default function OperatorScreen() {
       setLoading(true);
       try {
         const workersRes = await axios.get('https://graphite-api.vercel.app/api/workers');
-        setWorkers(workersRes.data);
+// Hide archived employees from the operator's view!
+setWorkers(workersRes.data.filter((w: any) => !w.is_archived));
 
         const attRes = await axios.get(`https://graphite-api.vercel.app/api/attendance?date=${date}&shift=${shift}`);
         const attMap: Record<string, AttData> = {};
