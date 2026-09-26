@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Users, Trash2 } from 'lucide-react';
-import { API_URL } from '../config';
 
 interface Worker {
   id: string;
@@ -16,8 +15,8 @@ export default function ManageEmployees() {
 
   const fetchWorkers = async () => {
     try {
-      // Using proper backticks and the live API_URL variable
-      const response = await axios.get(`${API_URL}/api/workers`);
+      // Hardcoded directly to your live Vercel backend to prevent any routing errors
+      const response = await axios.get('https://graphite-api.vercel.app/api/workers');
       setWorkers(response.data);
       setError('');
     } catch (err: any) {
@@ -35,8 +34,9 @@ export default function ManageEmployees() {
   const handleDelete = async (id: string) => {
     if (!window.confirm(`Are you sure you want to delete employee ${id}?`)) return;
     try {
-      await axios.delete(`${API_URL}/api/workers/${id}`);
-      fetchWorkers(); // Refresh the list automatically after deletion
+      // Hardcoded delete URL
+      await axios.delete('https://graphite-api.vercel.app/api/workers/' + id);
+      fetchWorkers(); 
     } catch (err) {
       console.error('Error deleting worker:', err);
       alert('Failed to delete employee.');
