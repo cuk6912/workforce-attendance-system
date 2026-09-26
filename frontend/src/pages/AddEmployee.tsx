@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { UserPlus, Upload } from 'lucide-react';
-import { API_URL } from '../config';
 
 export default function AddEmployee() {
   const [id, setId] = useState('');
@@ -9,35 +8,34 @@ export default function AddEmployee() {
   const [category, setCategory] = useState('Permanent');
   const [message, setMessage] = useState('');
 
+  // Casuals split into Group 1 and Group 2
   const bulkEmployees = [
     { id: 'PER01', name: 'SANDEEP BAHIKAR', category: 'Permanent' },
     { id: 'CCW01', name: 'SUNIL MORE', category: 'Contact' },
     { id: 'CCW02', name: 'KALU AWALI', category: 'Contact' },
     { id: 'CCW03', name: 'MAHENDRA GAVIT', category: 'Contact' },
-    { id: 'CCC01', name: 'SUNIL CHINKE', category: 'Casual' },
-    { id: 'CCC02', name: 'DILIP RAUT', category: 'Casual' },
-    { id: 'CCC03', name: 'ARUN KANVE', category: 'Casual' },
-    { id: 'CCC04', name: 'SURENDRA INGLE', category: 'Casual' },
-    { id: 'CCC05', name: 'DEEPAK KACHVE', category: 'Casual' },
-    { id: 'CCC06', name: 'SUNIL KUMAR', category: 'Casual' },
-    { id: 'CCC07', name: 'ANKUSH MENGAL', category: 'Casual' },
-    { id: 'CCC08', name: 'KRUSHNA PASWAN', category: 'Casual' },
-    { id: 'CCC09', name: 'UMESH KUMAR', category: 'Casual' },
-    { id: 'CCC10', name: 'ANNASAHEB RAMFALE', category: 'Casual' },
-    { id: 'CCC11', name: 'SUKHDEV TAYADE', category: 'Casual' },
-    { id: 'CCC12', name: 'SANDIP BHANVAR', category: 'Casual' },
-    { id: 'CCC13', name: 'ABHIJIT KALE', category: 'Casual' },
-    { id: 'CCC14', name: 'RAJU KHADE', category: 'Casual' }
+    { id: 'CCC01', name: 'SUNIL CHINKE', category: 'Casual - Group 1' },
+    { id: 'CCC02', name: 'DILIP RAUT', category: 'Casual - Group 1' },
+    { id: 'CCC03', name: 'ARUN KANVE', category: 'Casual - Group 1' },
+    { id: 'CCC04', name: 'SURENDRA INGLE', category: 'Casual - Group 1' },
+    { id: 'CCC05', name: 'DEEPAK KACHVE', category: 'Casual - Group 1' },
+    { id: 'CCC06', name: 'SUNIL KUMAR', category: 'Casual - Group 1' },
+    { id: 'CCC07', name: 'ANKUSH MENGAL', category: 'Casual - Group 1' },
+    { id: 'CCC08', name: 'KRUSHNA PASWAN', category: 'Casual - Group 2' },
+    { id: 'CCC09', name: 'UMESH KUMAR', category: 'Casual - Group 2' },
+    { id: 'CCC10', name: 'ANNASAHEB RAMFALE', category: 'Casual - Group 2' },
+    { id: 'CCC11', name: 'SUKHDEV TAYADE', category: 'Casual - Group 2' },
+    { id: 'CCC12', name: 'SANDIP BHANVAR', category: 'Casual - Group 2' },
+    { id: 'CCC13', name: 'ABHIJIT KALE', category: 'Casual - Group 2' },
+    { id: 'CCC14', name: 'RAJU KHADE', category: 'Casual - Group 2' }
   ];
 
   const handleBulkImport = async () => {
     setMessage('Importing... please wait.');
     try {
-      const response = await axios.post(`${API_URL}/api/workers/bulk`, bulkEmployees);
+      const response = await axios.post('https://graphite-api.vercel.app/api/workers/bulk', bulkEmployees);
       setMessage(response.data.message + ' 🎉');
     } catch (error: any) {
-      console.error('Import Error:', error);
-      // This line is updated to pull the exact database crash reason from the backend
       setMessage(`Error: ${error.response?.data?.error || error.message}`);
     }
   };
@@ -45,12 +43,11 @@ export default function AddEmployee() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await axios.post(`${API_URL}/api/workers`, { id, name, category });
+      await axios.post('https://graphite-api.vercel.app/api/workers', { id, name, category });
       setMessage('Employee added successfully! 🎉');
       setId('');
       setName('');
     } catch (error: any) {
-      console.error('Add Error:', error);
       setMessage(`Error: ${error.response?.data?.error || error.message}`);
     }
   };
@@ -64,7 +61,7 @@ export default function AddEmployee() {
             <Upload className="text-green-600" size={28} />
             <h2 className="text-xl font-black text-gray-800">Quick Import Employee Master List</h2>
           </div>
-          <p className="text-gray-600 mb-4 font-medium">Instantly load all {bulkEmployees.length} employees into the database.</p>
+          <p className="text-gray-600 mb-4 font-medium">Instantly load all {bulkEmployees.length} employees into the database (Updates Casual Groups).</p>
           <button 
             onClick={handleBulkImport}
             className="w-full bg-green-600 hover:bg-green-700 text-white p-3 rounded-lg font-black text-lg cursor-pointer shadow-md"
@@ -110,7 +107,8 @@ export default function AddEmployee() {
               >
                 <option value="Permanent">Permanent</option>
                 <option value="Contact">Contact</option>
-                <option value="Casual">Casual</option>
+                <option value="Casual - Group 1">Casual - Group 1</option>
+                <option value="Casual - Group 2">Casual - Group 2</option>
               </select>
             </div>
             <button 

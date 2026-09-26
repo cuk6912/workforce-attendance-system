@@ -9,20 +9,24 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Connect to Neon PostgreSQL
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+let pool;
+if (process.env.DATABASE_URL) {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+}
 
-// Initialize tables
+const requireDB = (req, res, next) => {
+  if (!pool) {
+    return res.status(500).json({ error: 'CRITICAL: DATABASE_URL is missing!' });
+  }
+  next();
+};
+
 async function initDB() {
+  if (!pool) return;
   try {
-    if (!process.env.DATABASE_URL) {
-      console.error('FATAL ERROR: DATABASE_URL environment variable is missing.');
-      return;
-    }
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS workers (
         id TEXT PRIMARY KEY,
@@ -42,7 +46,14 @@ async function initDB() {
       );
     `);
 
-    console.log('Connected to Neon PostgreSQL database.');
+    // Safely upgrade the database to support Late In and Early Out
+    await pool.query(`
+      ALTER TABLE attendance 
+      ADD COLUMN IF NOT EXISTS late_in BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS early_out BOOLEAN DEFAULT false;
+    `);
+
+    console.log('Connected to Neon PostgreSQL database and upgraded tables.');
   } catch (err) {
     console.error('Database initialization error:', err);
   }
@@ -50,14 +61,14 @@ async function initDB() {
 initDB();
 
 // API Routes
-app.get('/api/workers', async (req, res) => {
+app.get('/api/workers', requireDB, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM workers ORDER BY id');
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/workers', async (req, res) => {
+app.post('/api/workers', requireDB, async (req, res) => {
   const { id, name, category } = req.body;
   try {
     await pool.query(
@@ -68,7 +79,7 @@ app.post('/api/workers', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/workers/bulk', async (req, res) => {
+app.post('/api/workers/bulk', requireDB, async (req, res) => {
   const workers = req.body;
   try {
     for (const w of workers) {
@@ -78,47 +89,44 @@ app.post('/api/workers/bulk', async (req, res) => {
       );
     }
     res.json({ message: `Successfully imported ${workers.length} employees!` });
-  } catch (err) { 
-    console.error('Bulk Import Database Error:', err);
-    res.status(500).json({ error: err.message }); 
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/workers/:id', async (req, res) => {
+app.put('/api/workers/:id', requireDB, async (req, res) => {
   try {
     await pool.query('UPDATE workers SET name = $1, category = $2 WHERE id = $3', [req.body.name, req.body.category, req.params.id]);
     res.json({ message: 'Worker updated successfully' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/workers/:id', async (req, res) => {
+app.delete('/api/workers/:id', requireDB, async (req, res) => {
   try {
     await pool.query('DELETE FROM workers WHERE id = $1', [req.params.id]);
     res.json({ message: 'Worker deleted successfully' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/attendance', async (req, res) => {
-  const { worker_id, date, shift, status } = req.body;
+app.post('/api/attendance', requireDB, async (req, res) => {
+  const { worker_id, date, shift, status, late_in = false, early_out = false } = req.body;
   try {
     await pool.query(`
-      INSERT INTO attendance (worker_id, date, shift, status) 
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO attendance (worker_id, date, shift, status, late_in, early_out) 
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (worker_id, date, shift) 
-      DO UPDATE SET status = EXCLUDED.status
-    `, [worker_id, date, shift, status]);
+      DO UPDATE SET status = EXCLUDED.status, late_in = EXCLUDED.late_in, early_out = EXCLUDED.early_out
+    `, [worker_id, date, shift, status, late_in, early_out]);
     res.json({ message: 'Attendance saved successfully' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/attendance', async (req, res) => {
+app.get('/api/attendance', requireDB, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM attendance WHERE date = $1 AND shift = $2', [req.query.date, req.query.shift]);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/dashboard-stats', async (req, res) => {
+app.get('/api/dashboard-stats', requireDB, async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
   try {
     const workerRes = await pool.query('SELECT COUNT(*) FROM workers');
