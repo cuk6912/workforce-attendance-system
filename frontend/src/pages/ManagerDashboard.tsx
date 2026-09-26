@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Users, UserCheck, UserX, Activity, Calendar, Download, FileText } from 'lucide-react';
+import { Users, UserCheck, UserX, Activity, Calendar, FileText } from 'lucide-react';
 import ManagerAuth from '../components/ManagerAuth'; 
 
 export default function Dashboard() {
@@ -81,7 +81,7 @@ export default function Dashboard() {
             
             <div className="flex flex-wrap gap-3 mb-6">
               {['Today', 'Week', 'Month', 'Year'].map(type => (
-                <button key={type} onClick={() => setPreset(type)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors border border-slate-300">
+                <button key={type} onClick={() => setPreset(type)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors border border-slate-300 cursor-pointer">
                   This {type}
                 </button>
               ))}
