@@ -1,0 +1,43 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1. Users (Managers and Operators)
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  role         String   @default("OPERATOR")
+  name         String
+}
+
+// 2. Employees (The workforce)
+model Employee {
+  id           String       @id
+  name         String
+  category     String       // Permanent, Contract, or Casual
+  department   String
+  shift        String
+  isActive     Boolean      @default(true)
+  attendance   Attendance[] // Links to their daily attendance
+}
+
+// 3. Daily Attendance Records
+model Attendance {
+  id          String   @id @default(uuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  date        String   // Example: "2026-08-26"
+  shift       String
+  status      String   // Present, Absent, Leave, etc.
+  isFinalized Boolean  @default(false)
+  remarks     String?
+
+  // This rule prevents duplicate entries for the same worker on the same day/shift
+  @@unique([employeeId, date, shift]) 
+}
