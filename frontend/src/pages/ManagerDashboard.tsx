@@ -1,114 +1,86 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Users, Trash2 } from 'lucide-react';
+import { Users, UserCheck, UserX, Activity } from 'lucide-react';
 
-interface Worker {
-  id: string;
-  name: string;
-  category: string;
-}
-
-export default function ManageEmployees() {
-  const [workers, setWorkers] = useState<Worker[]>([]);
+export default function Dashboard() {
+  const [stats, setStats] = useState({ total: 0, present: 0, absent: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchWorkers = async () => {
+  const fetchStats = async () => {
     try {
-      // Hardcoded directly to your live Vercel backend to prevent any routing errors
-      const response = await axios.get('https://graphite-api.vercel.app/api/workers');
-      setWorkers(response.data);
+      // Hardcoded directly to your live Vercel backend for perfect connectivity
+      const response = await axios.get('https://graphite-api.vercel.app/api/dashboard-stats');
+      setStats(response.data);
       setError('');
     } catch (err: any) {
-      console.error('Error fetching workers:', err);
-      setError('Failed to load employees. Please try refreshing.');
+      console.error('Error fetching dashboard stats:', err);
+      setError('Failed to load dashboard statistics from the server.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchWorkers();
+    fetchStats();
   }, []);
-
-  const handleDelete = async (id: string) => {
-    if (!window.confirm(`Are you sure you want to delete employee ${id}?`)) return;
-    try {
-      // Hardcoded delete URL
-      await axios.delete('https://graphite-api.vercel.app/api/workers/' + id);
-      fetchWorkers(); 
-    } catch (err) {
-      console.error('Error deleting worker:', err);
-      alert('Failed to delete employee.');
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 md:p-6">
-      <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-6 border-b border-gray-200 flex items-center gap-3">
-          <Users className="text-blue-600" size={32} />
-          <h1 className="text-2xl font-black text-gray-800">Manage Employees / Workers</h1>
-        </div>
+      <div className="max-w-6xl mx-auto space-y-6">
         
+        <div className="flex items-center gap-3 mb-6">
+          <Activity className="text-blue-600" size={32} />
+          <h1 className="text-2xl font-black text-gray-800">System Dashboard</h1>
+        </div>
+
         {error && (
-          <div className="p-4 bg-red-50 text-red-700 font-bold border-b border-red-100">
+          <div className="p-4 bg-red-50 text-red-700 font-bold rounded-lg border border-red-200">
             {error}
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50 text-gray-700">
-                <th className="p-4 font-bold border-b">ID</th>
-                <th className="p-4 font-bold border-b">Name</th>
-                <th className="p-4 font-bold border-b">Category</th>
-                <th className="p-4 font-bold border-b text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={4} className="p-8 text-center font-bold text-gray-500 text-lg">
-                    Loading employees from database...
-                  </td>
-                </tr>
-              ) : workers.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="p-8 text-center font-bold text-gray-500 text-lg">
-                    No employees found. Please import them from the Add Employee screen.
-                  </td>
-                </tr>
-              ) : (
-                workers.map(worker => (
-                  <tr key={worker.id} className="border-b hover:bg-gray-50 transition-colors">
-                    <td className="p-4 font-medium text-gray-900">{worker.id}</td>
-                    <td className="p-4 font-bold text-blue-900">{worker.name}</td>
-                    <td className="p-4">
-                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${
-                        worker.category === 'Permanent' ? 'bg-purple-100 text-purple-700' : 
-                        worker.category === 'Contact' ? 'bg-orange-100 text-orange-700' : 
-                        'bg-green-100 text-green-700'
-                      }`}>
-                        {worker.category}
-                      </span>
-                    </td>
-                    <td className="p-4 text-center">
-                      <button 
-                        onClick={() => handleDelete(worker.id)} 
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors cursor-pointer"
-                        title="Delete Employee"
-                      >
-                        <Trash2 size={20} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Total Employees Card */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4">
+            <div className="p-4 bg-blue-100 rounded-lg text-blue-600">
+              <Users size={32} />
+            </div>
+            <div>
+              <p className="text-gray-500 font-bold uppercase text-sm tracking-wider">Total Employees</p>
+              <h2 className="text-4xl font-black text-gray-800">
+                {loading ? '...' : stats.total}
+              </h2>
+            </div>
+          </div>
+
+          {/* Present Today Card */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4">
+            <div className="p-4 bg-green-100 rounded-lg text-green-600">
+              <UserCheck size={32} />
+            </div>
+            <div>
+              <p className="text-gray-500 font-bold uppercase text-sm tracking-wider">Present Today</p>
+              <h2 className="text-4xl font-black text-gray-800">
+                {loading ? '...' : stats.present}
+              </h2>
+            </div>
+          </div>
+
+          {/* Absent Today Card */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4">
+            <div className="p-4 bg-red-100 rounded-lg text-red-600">
+              <UserX size={32} />
+            </div>
+            <div>
+              <p className="text-gray-500 font-bold uppercase text-sm tracking-wider">Absent Today</p>
+              <h2 className="text-4xl font-black text-gray-800">
+                {loading ? '...' : stats.absent}
+              </h2>
+            </div>
+          </div>
         </div>
+
       </div>
     </div>
   );
