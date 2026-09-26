@@ -1,7 +1,7 @@
-import ManagerAuth from '../components/ManagerAuth';
 import { useState } from 'react';
 import axios from 'axios';
 import { UserPlus, Upload } from 'lucide-react';
+import ManagerAuth from '../components/ManagerAuth'; // Secures this page
 
 export default function AddEmployee() {
   const [id, setId] = useState('');
@@ -9,7 +9,6 @@ export default function AddEmployee() {
   const [category, setCategory] = useState('Permanent');
   const [message, setMessage] = useState('');
 
-  // Casuals reset to basic "Casual" so you can manually assign groups later
   const bulkEmployees = [
     { id: 'PER01', name: 'SANDEEP BAHIKAR', category: 'Permanent' },
     { id: 'CCW01', name: 'SUNIL MORE', category: 'Contact' },
@@ -53,10 +52,76 @@ export default function AddEmployee() {
     }
   };
 
- return (
-  <ManagerAuth>
-    <div className="min-h-screen bg-gray-100 p-4 md:p-6">
-      {/* ... the rest of the code ... */}
-    </div>
-  </ManagerAuth>
-);
+  return (
+    <ManagerAuth>
+      <div className="min-h-screen bg-gray-100 p-4 md:p-6">
+        <div className="max-w-2xl mx-auto space-y-6">
+          
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <div className="flex items-center gap-3 mb-4">
+              <Upload className="text-green-600" size={28} />
+              <h2 className="text-xl font-black text-gray-800">Quick Import Employee Master List</h2>
+            </div>
+            <p className="text-gray-600 mb-4 font-medium">Instantly load all {bulkEmployees.length} employees into the database.</p>
+            <button 
+              onClick={handleBulkImport}
+              className="w-full bg-green-600 hover:bg-green-700 text-white p-3 rounded-lg font-black text-lg cursor-pointer shadow-md"
+            >
+              Import Excel List ({bulkEmployees.length} Employees)
+            </button>
+          </div>
+
+          <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+            <div className="flex items-center gap-3 mb-6">
+              <UserPlus className="text-blue-600" size={32} />
+              <h1 className="text-2xl font-black text-gray-800">Add Single Employee</h1>
+            </div>
+
+            {message && (
+              <div className={`p-4 mb-6 rounded-lg font-bold ${message.toLowerCase().includes('error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                {message}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-gray-700 font-bold mb-2">Employee ID</label>
+                <input 
+                  type="text" value={id} onChange={e => setId(e.target.value)} required
+                  placeholder="e.g. PER02"
+                  className="w-full border-2 border-gray-300 p-3 rounded-lg font-medium"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 font-bold mb-2">Full Name</label>
+                <input 
+                  type="text" value={name} onChange={e => setName(e.target.value)} required
+                  placeholder="Enter full name"
+                  className="w-full border-2 border-gray-300 p-3 rounded-lg font-medium"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 font-bold mb-2">Category</label>
+                <select 
+                  value={category} onChange={e => setCategory(e.target.value)}
+                  className="w-full border-2 border-gray-300 p-3 rounded-lg font-medium"
+                >
+                  <option value="Permanent">Permanent</option>
+                  <option value="Contact">Contact</option>
+                  <option value="Casual">Casual (Unassigned)</option>
+                </select>
+              </div>
+              <button 
+                type="submit"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-black text-lg cursor-pointer shadow-md mt-4"
+              >
+                Save Employee
+              </button>
+            </form>
+          </div>
+
+        </div>
+      </div>
+    </ManagerAuth>
+  );
+}
