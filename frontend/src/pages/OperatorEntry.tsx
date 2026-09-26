@@ -20,7 +20,7 @@ export default function OperatorScreen() {
   
   // Smart filters
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [employeeGroup, setEmployeeGroup] = useState('Regular'); // 'Regular' or 'Casual'
+  const [employeeGroup, setEmployeeGroup] = useState('Regular'); // 'Regular', 'Casual - Group 1', 'Casual - Group 2'
   const [shift, setShift] = useState('G'); // Defaults to G for Regular
   
   const [loading, setLoading] = useState(true);
@@ -30,7 +30,9 @@ export default function OperatorScreen() {
   const handleGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const group = e.target.value;
     setEmployeeGroup(group);
-    if (group === 'Casual') {
+    
+    // Auto-switch shifts based on Regular vs Casual groups
+    if (group.includes('Casual')) {
       setShift('Day');
     } else {
       setShift('G');
@@ -62,7 +64,7 @@ export default function OperatorScreen() {
       }
     };
     fetchData();
-  }, [date, shift]); // Re-fetch if date or shift changes
+  }, [date, shift]);
 
   const markAttendance = async (worker_id: string, status: string, late_in: boolean, early_out: boolean) => {
     setAttendance(prev => ({ ...prev, [worker_id]: { status, late_in, early_out } }));
@@ -75,12 +77,17 @@ export default function OperatorScreen() {
     }
   };
 
-  // Filter workers based on selected group
+  // SMART FILTERING LOGIC
   const filteredWorkers = workers.filter(w => {
     if (employeeGroup === 'Regular') {
       return w.category === 'Permanent' || w.category === 'Contact';
     } else {
-      return w.category.includes('Casual');
+      // If it is a Casual Group (Group 1 or Group 2)
+      // Rule 1: Show unassigned "Casual" workers IF the shift is "Day"
+      if (shift === 'Day' && w.category === 'Casual') return true;
+      
+      // Rule 2: Otherwise, ONLY show employees explicitly assigned to the selected group
+      return w.category === employeeGroup;
     }
   });
 
@@ -109,7 +116,8 @@ export default function OperatorScreen() {
                 className="bg-transparent text-white font-bold outline-none cursor-pointer w-full"
               >
                 <option value="Regular" className="text-black">Regulars (Perm/Contact)</option>
-                <option value="Casual" className="text-black">Casual Workers</option>
+                <option value="Casual - Group 1" className="text-black">Casual - Group 1</option>
+                <option value="Casual - Group 2" className="text-black">Casual - Group 2</option>
               </select>
             </div>
             
@@ -153,7 +161,7 @@ export default function OperatorScreen() {
               {loading ? (
                 <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">Loading employees...</td></tr>
               ) : filteredWorkers.length === 0 ? (
-                <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">No {employeeGroup} employees found.</td></tr>
+                <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">No employees found for this selection.</td></tr>
               ) : (
                 filteredWorkers.map(worker => {
                   const current = attendance[worker.id] || { status: '', late_in: false, early_out: false };
@@ -163,8 +171,10 @@ export default function OperatorScreen() {
                       <td className="p-4 font-medium text-gray-900">{worker.id}</td>
                       <td className="p-4 font-bold text-blue-900">{worker.name}</td>
                       <td className="p-4">
-                        <span className="px-3 py-1 bg-gray-200 rounded-full text-sm font-bold text-gray-700">
-                          {worker.category}
+                        <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                          worker.category === 'Casual' ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' : 'bg-gray-200 text-gray-700'
+                        }`}>
+                          {worker.category === 'Casual' ? 'Casual (Unassigned)' : worker.category}
                         </span>
                       </td>
                       <td className="p-4 flex flex-col items-center gap-2">
@@ -178,7 +188,7 @@ export default function OperatorScreen() {
                             PRESENT
                           </button>
                           <button 
-                            onClick={() => markAttendance(worker.id, 'ABSENT', false, false)} // Reset late/early if absent
+                            onClick={() => markAttendance(worker.id, 'ABSENT', false, false)}
                             className={`px-4 py-2 rounded-lg font-black transition-all ${
                               current.status === 'ABSENT' ? 'bg-red-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-red-100'
                             }`}
@@ -187,7 +197,7 @@ export default function OperatorScreen() {
                           </button>
                         </div>
                         
-                        {/* Late In / Early Out Checkboxes (Only visible if Present) */}
+                        {/* Late In / Early Out Checkboxes */}
                         {current.status === 'PRESENT' && (
                           <div className="flex gap-4 mt-1 bg-blue-50 px-3 py-1.5 rounded border border-blue-100">
                             <label className="flex items-center gap-1.5 text-sm font-bold text-blue-900 cursor-pointer">
