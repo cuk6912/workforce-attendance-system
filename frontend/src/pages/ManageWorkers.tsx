@@ -6,6 +6,7 @@ interface Worker {
   id: string;
   name: string;
   category: string;
+  worker_group?: string; // New custom group field
 }
 
 export default function ManageEmployees() {
@@ -17,6 +18,7 @@ export default function ManageEmployees() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editCategory, setEditCategory] = useState('');
+  const [editGroup, setEditGroup] = useState(''); // State for custom group name
 
   const fetchWorkers = async () => {
     try {
@@ -48,31 +50,30 @@ export default function ManageEmployees() {
     setEditingId(worker.id);
     setEditName(worker.name);
     setEditCategory(worker.category);
+    setEditGroup(worker.worker_group || '');
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setEditName('');
-    setEditCategory('');
   };
 
   const saveEdit = async (id: string) => {
     try {
       await axios.put(`https://graphite-api.vercel.app/api/workers/${id}`, {
         name: editName,
-        category: editCategory
+        category: editCategory,
+        worker_group: editGroup.trim()
       });
       setEditingId(null);
-      fetchWorkers(); // Refresh list to show updates
+      fetchWorkers(); 
     } catch (err) {
-      console.error('Error updating worker:', err);
       alert('Failed to update employee.');
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 md:p-6">
-      <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-6 border-b border-gray-200 flex items-center gap-3">
           <Users className="text-blue-600" size={32} />
           <h1 className="text-2xl font-black text-gray-800">Manage Employees / Workers</h1>
@@ -87,52 +88,51 @@ export default function ManageEmployees() {
                 <th className="p-4 font-bold border-b">ID</th>
                 <th className="p-4 font-bold border-b">Name</th>
                 <th className="p-4 font-bold border-b">Category</th>
+                <th className="p-4 font-bold border-b">Assigned Group</th>
                 <th className="p-4 font-bold border-b text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">Loading employees...</td></tr>
+                <tr><td colSpan={5} className="p-8 text-center font-bold text-gray-500">Loading employees...</td></tr>
               ) : workers.length === 0 ? (
-                <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">No employees found.</td></tr>
+                <tr><td colSpan={5} className="p-8 text-center font-bold text-gray-500">No employees found.</td></tr>
               ) : (
                 workers.map(worker => (
                   editingId === worker.id ? (
-                    /* EDITING ROW MODE */
                     <tr key={worker.id} className="border-b bg-blue-50">
                       <td className="p-4 font-medium text-gray-900">{worker.id}</td>
                       <td className="p-4">
-                        <input 
-                          type="text" 
-                          value={editName} 
-                          onChange={(e) => setEditName(e.target.value)}
+                        <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)}
                           className="w-full border-2 border-blue-300 p-2 rounded font-bold"
                         />
                       </td>
                       <td className="p-4">
-                        <select 
-                          value={editCategory} 
-                          onChange={(e) => setEditCategory(e.target.value)}
+                        <select value={editCategory} onChange={(e) => setEditCategory(e.target.value)}
                           className="w-full border-2 border-blue-300 p-2 rounded font-bold"
                         >
                           <option value="Permanent">Permanent</option>
                           <option value="Contact">Contact</option>
-                          <option value="Casual">Casual (Unassigned)</option>
-                          <option value="Casual - Group 1">Casual - Group 1</option>
-                          <option value="Casual - Group 2">Casual - Group 2</option>
+                          <option value="Casual">Casual</option>
                         </select>
                       </td>
+                      <td className="p-4">
+                        {/* Allows editing custom group names */}
+                        <input type="text" value={editGroup} onChange={(e) => setEditGroup(e.target.value)}
+                          placeholder="e.g. Group 1"
+                          className="w-full border-2 border-blue-300 p-2 rounded font-bold"
+                        />
+                      </td>
                       <td className="p-4 flex justify-center gap-2">
-                        <button onClick={() => saveEdit(worker.id)} className="text-white bg-green-600 hover:bg-green-700 p-2 rounded-lg shadow-sm" title="Save">
+                        <button onClick={() => saveEdit(worker.id)} className="text-white bg-green-600 hover:bg-green-700 p-2 rounded-lg shadow-sm">
                           <Check size={20} />
                         </button>
-                        <button onClick={cancelEdit} className="text-white bg-gray-500 hover:bg-gray-600 p-2 rounded-lg shadow-sm" title="Cancel">
+                        <button onClick={cancelEdit} className="text-white bg-gray-500 hover:bg-gray-600 p-2 rounded-lg shadow-sm">
                           <X size={20} />
                         </button>
                       </td>
                     </tr>
                   ) : (
-                    /* NORMAL VIEW ROW */
                     <tr key={worker.id} className="border-b hover:bg-gray-50 transition-colors">
                       <td className="p-4 font-medium text-gray-900">{worker.id}</td>
                       <td className="p-4 font-bold text-blue-900">{worker.name}</td>
@@ -140,24 +140,25 @@ export default function ManageEmployees() {
                         <span className={`px-3 py-1 rounded-full text-sm font-bold ${
                           worker.category === 'Permanent' ? 'bg-purple-100 text-purple-700' : 
                           worker.category === 'Contact' ? 'bg-orange-100 text-orange-700' : 
-                          'bg-green-100 text-green-700'
+                          'bg-gray-100 text-gray-700'
                         }`}>
                           {worker.category}
                         </span>
                       </td>
+                      <td className="p-4">
+                        {worker.worker_group ? (
+                          <span className="px-3 py-1 bg-green-100 text-green-800 font-bold rounded shadow-sm border border-green-200">
+                            {worker.worker_group}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 font-bold italic">Unassigned</span>
+                        )}
+                      </td>
                       <td className="p-4 flex justify-center gap-2">
-                        <button 
-                          onClick={() => startEdit(worker)} 
-                          className="text-blue-600 hover:bg-blue-100 p-2 rounded-lg transition-colors"
-                          title="Edit Employee"
-                        >
+                        <button onClick={() => startEdit(worker)} className="text-blue-600 hover:bg-blue-100 p-2 rounded-lg transition-colors">
                           <Edit size={20} />
                         </button>
-                        <button 
-                          onClick={() => handleDelete(worker.id)} 
-                          className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                          title="Delete Employee"
-                        >
+                        <button onClick={() => handleDelete(worker.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
                           <Trash2 size={20} />
                         </button>
                       </td>

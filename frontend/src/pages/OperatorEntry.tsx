@@ -6,6 +6,7 @@ interface Worker {
   id: string;
   name: string;
   category: string;
+  worker_group?: string;
 }
 
 interface AttData {
@@ -18,21 +19,23 @@ export default function OperatorScreen() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [attendance, setAttendance] = useState<Record<string, AttData>>({});
   
-  // Smart filters
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [employeeGroup, setEmployeeGroup] = useState('Regular'); // 'Regular', 'Casual - Group 1', 'Casual - Group 2'
-  const [shift, setShift] = useState('G'); // Defaults to G for Regular
+  const [employeeGroup, setEmployeeGroup] = useState('Regular'); 
+  const [shift, setShift] = useState('G');
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // When Employee Group changes, force the shift to match their allowed shifts
+  // Extract all unique custom groups that have been assigned to casuals
+  const casualGroups = Array.from(new Set(
+    workers.filter(w => w.category === 'Casual' && w.worker_group).map(w => w.worker_group as string)
+  )).sort();
+
   const handleGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const group = e.target.value;
     setEmployeeGroup(group);
     
-    // Auto-switch shifts based on Regular vs Casual groups
-    if (group.includes('Casual')) {
+    if (group !== 'Regular') {
       setShift('Day');
     } else {
       setShift('G');
@@ -58,7 +61,7 @@ export default function OperatorScreen() {
         setAttendance(attMap);
         setError('');
       } catch (err: any) {
-        setError('Failed to load data from the server. Please try again.');
+        setError('Failed to load data from the server.');
       } finally {
         setLoading(false);
       }
@@ -82,12 +85,12 @@ export default function OperatorScreen() {
     if (employeeGroup === 'Regular') {
       return w.category === 'Permanent' || w.category === 'Contact';
     } else {
-      // If it is a Casual Group (Group 1 or Group 2)
-      // Rule 1: Show unassigned "Casual" workers IF the shift is "Day"
-      if (shift === 'Day' && w.category === 'Casual') return true;
+      // Rule 1: Show unassigned casuals IF the shift is explicitly "Day"
+      const isUnassignedCasual = w.category === 'Casual' && (!w.worker_group || w.worker_group.trim() === '');
+      if (shift === 'Day' && isUnassignedCasual) return true;
       
-      // Rule 2: Otherwise, ONLY show employees explicitly assigned to the selected group
-      return w.category === employeeGroup;
+      // Rule 2: Show workers explicitly assigned to the selected dropdown group
+      return w.worker_group === employeeGroup;
     }
   });
 
@@ -95,7 +98,6 @@ export default function OperatorScreen() {
     <div className="min-h-screen bg-gray-100 p-4 md:p-6">
       <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         
-        {/* Header Section */}
         <div className="p-6 border-b border-gray-200 bg-slate-800 text-white flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">
             <ClipboardList className="text-blue-400" size={32} />
@@ -116,8 +118,14 @@ export default function OperatorScreen() {
                 className="bg-transparent text-white font-bold outline-none cursor-pointer w-full"
               >
                 <option value="Regular" className="text-black">Regulars (Perm/Contact)</option>
-                <option value="Casual - Group 1" className="text-black">Casual - Group 1</option>
-                <option value="Casual - Group 2" className="text-black">Casual - Group 2</option>
+                {/* Dynamically loads your custom group names from the database */}
+                {casualGroups.map(g => (
+                  <option key={g} value={g} className="text-black">Casual - {g}</option>
+                ))}
+                {/* Fallback if no custom groups exist yet */}
+                {casualGroups.length === 0 && (
+                  <option value="Unassigned Only" className="text-black">Casuals (Unassigned)</option>
+                )}
               </select>
             </div>
             
@@ -146,14 +154,13 @@ export default function OperatorScreen() {
 
         {error && <div className="p-4 bg-red-50 text-red-700 font-bold border-b border-red-100">{error}</div>}
 
-        {/* Worker List Section */}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50 text-gray-700">
                 <th className="p-4 font-bold border-b">ID</th>
                 <th className="p-4 font-bold border-b">Name</th>
-                <th className="p-4 font-bold border-b">Category</th>
+                <th className="p-4 font-bold border-b">Assigned Group</th>
                 <th className="p-4 font-bold border-b text-center">Mark Attendance</th>
               </tr>
             </thead>
@@ -165,17 +172,22 @@ export default function OperatorScreen() {
               ) : (
                 filteredWorkers.map(worker => {
                   const current = attendance[worker.id] || { status: '', late_in: false, early_out: false };
+                  const isUnassigned = !worker.worker_group || worker.worker_group.trim() === '';
                   
                   return (
                     <tr key={worker.id} className="border-b hover:bg-gray-50 transition-colors">
                       <td className="p-4 font-medium text-gray-900">{worker.id}</td>
                       <td className="p-4 font-bold text-blue-900">{worker.name}</td>
                       <td className="p-4">
-                        <span className={`px-3 py-1 rounded-full text-sm font-bold ${
-                          worker.category === 'Casual' ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' : 'bg-gray-200 text-gray-700'
-                        }`}>
-                          {worker.category === 'Casual' ? 'Casual (Unassigned)' : worker.category}
-                        </span>
+                        {isUnassigned ? (
+                           <span className="px-3 py-1 bg-yellow-100 text-yellow-800 border border-yellow-300 rounded-full text-sm font-bold">
+                             Unassigned
+                           </span>
+                        ) : (
+                          <span className="px-3 py-1 bg-green-100 text-green-800 font-bold rounded text-sm border border-green-200">
+                            {worker.worker_group}
+                          </span>
+                        )}
                       </td>
                       <td className="p-4 flex flex-col items-center gap-2">
                         <div className="flex justify-center gap-3">
@@ -197,7 +209,6 @@ export default function OperatorScreen() {
                           </button>
                         </div>
                         
-                        {/* Late In / Early Out Checkboxes */}
                         {current.status === 'PRESENT' && (
                           <div className="flex gap-4 mt-1 bg-blue-50 px-3 py-1.5 rounded border border-blue-100">
                             <label className="flex items-center gap-1.5 text-sm font-bold text-blue-900 cursor-pointer">

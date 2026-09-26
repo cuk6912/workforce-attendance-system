@@ -18,9 +18,7 @@ if (process.env.DATABASE_URL) {
 }
 
 const requireDB = (req, res, next) => {
-  if (!pool) {
-    return res.status(500).json({ error: 'CRITICAL: DATABASE_URL is missing!' });
-  }
+  if (!pool) return res.status(500).json({ error: 'CRITICAL: DATABASE_URL is missing!' });
   next();
 };
 
@@ -46,11 +44,17 @@ async function initDB() {
       );
     `);
 
-    // Safely upgrade the database to support Late In and Early Out
+    // Upgrade tables safely
     await pool.query(`
       ALTER TABLE attendance 
       ADD COLUMN IF NOT EXISTS late_in BOOLEAN DEFAULT false,
       ADD COLUMN IF NOT EXISTS early_out BOOLEAN DEFAULT false;
+    `);
+
+    // Add dedicated group column for custom naming
+    await pool.query(`
+      ALTER TABLE workers 
+      ADD COLUMN IF NOT EXISTS worker_group TEXT DEFAULT '';
     `);
 
     console.log('Connected to Neon PostgreSQL database and upgraded tables.');
@@ -60,7 +64,6 @@ async function initDB() {
 }
 initDB();
 
-// API Routes
 app.get('/api/workers', requireDB, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM workers ORDER BY id');
@@ -69,11 +72,11 @@ app.get('/api/workers', requireDB, async (req, res) => {
 });
 
 app.post('/api/workers', requireDB, async (req, res) => {
-  const { id, name, category } = req.body;
+  const { id, name, category, worker_group = '' } = req.body;
   try {
     await pool.query(
-      'INSERT INTO workers (id, name, category) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category',
-      [id, name, category]
+      'INSERT INTO workers (id, name, category, worker_group) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, worker_group = EXCLUDED.worker_group',
+      [id, name, category, worker_group]
     );
     res.json({ message: 'Worker saved successfully' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -83,18 +86,22 @@ app.post('/api/workers/bulk', requireDB, async (req, res) => {
   const workers = req.body;
   try {
     for (const w of workers) {
+      // By omitting worker_group from the DO UPDATE clause, bulk imports will NEVER erase your custom groups!
       await pool.query(
         'INSERT INTO workers (id, name, category) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category',
         [w.id, w.name, w.category]
       );
     }
-    res.json({ message: `Successfully imported ${workers.length} employees!` });
+    res.json({ message: `Successfully imported ${workers.length} employees! Group assignments were preserved.` });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put('/api/workers/:id', requireDB, async (req, res) => {
   try {
-    await pool.query('UPDATE workers SET name = $1, category = $2 WHERE id = $3', [req.body.name, req.body.category, req.params.id]);
+    await pool.query(
+      'UPDATE workers SET name = $1, category = $2, worker_group = $3 WHERE id = $4', 
+      [req.body.name, req.body.category, req.body.worker_group || '', req.params.id]
+    );
     res.json({ message: 'Worker updated successfully' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -140,7 +147,7 @@ app.get('/api/dashboard-stats', requireDB, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/', (req, res) => res.send('Attendance API is running live on Vercel!'));
+app.get('/', (req, res) => res.send('Attendance API is running live!'));
 
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => console.log(`Server running locally on port ${PORT}`));
