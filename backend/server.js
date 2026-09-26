@@ -152,7 +152,11 @@ app.get('/api/dashboard-stats', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Test route to ensure API is awake
-app.get('/', (req, res) => res.send('Attendance API is running live!'));
+// Test route
+app.get('/', (req, res) => res.send('Attendance API is running live on Vercel!'));
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// VERCEL CONFIGURATION: Export the app instead of listening directly in production
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => console.log(`Server running locally on port ${PORT}`));
+}
+module.exports = app;
