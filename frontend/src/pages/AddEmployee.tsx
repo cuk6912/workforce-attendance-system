@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { UserPlus, Upload } from 'lucide-react';
+import { API_URL } from '../config';
 
 export default function AddEmployee() {
   const [id, setId] = useState('');
@@ -30,23 +31,28 @@ export default function AddEmployee() {
   ];
 
   const handleBulkImport = async () => {
+    setMessage('Importing... please wait.');
     try {
-      const response = await axios.post('http://localhost:5000/api/workers/bulk', bulkEmployees);
+      // Using proper backticks here
+      const response = await axios.post(`${API_URL}/api/workers/bulk`, bulkEmployees);
       setMessage(response.data.message + ' 🎉');
-    } catch (error) {
-      setMessage('Error importing list.');
+    } catch (error: any) {
+      console.error('Import Error:', error);
+      setMessage(`Error importing list: ${error.message}`);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:5000/api/workers', { id, name, category });
+      // Using proper backticks here
+      await axios.post(`${API_URL}/api/workers`, { id, name, category });
       setMessage('Employee added successfully! 🎉');
       setId('');
       setName('');
     } catch (error: any) {
-      setMessage('Error: ' + (error.response?.data?.error || 'Could not add employee'));
+      console.error('Add Error:', error);
+      setMessage(`Error: ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -75,7 +81,7 @@ export default function AddEmployee() {
           </div>
 
           {message && (
-            <div className={`p-4 mb-6 rounded-lg font-bold ${message.includes('Error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+            <div className={`p-4 mb-6 rounded-lg font-bold ${message.toLowerCase().includes('error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
               {message}
             </div>
           )}
