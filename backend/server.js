@@ -18,6 +18,11 @@ const pool = new Pool({
 // Initialize tables
 async function initDB() {
   try {
+    if (!process.env.DATABASE_URL) {
+      console.error('FATAL ERROR: DATABASE_URL environment variable is missing.');
+      return;
+    }
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS workers (
         id TEXT PRIMARY KEY,
@@ -37,34 +42,6 @@ async function initDB() {
       );
     `);
 
-    // Seed default workers if empty
-    const res = await pool.query('SELECT COUNT(*) FROM workers');
-    if (parseInt(res.rows[0].count) === 0) {
-      const defaultWorkers = [
-        ['PER01', 'SANDEEP BAHIKAR', 'Permanent'],
-        ['CCW01', 'SUNIL MORE', 'Contact'],
-        ['CCW02', 'KALU AWALI', 'Contact'],
-        ['CCW03', 'MAHENDRA GAVIT', 'Contact'],
-        ['CCC01', 'SUNIL CHINKE', 'Casual'],
-        ['CCC02', 'DILIP RAUT', 'Casual'],
-        ['CCC03', 'ARUN KANVE', 'Casual'],
-        ['CCC04', 'SURENDRA INGLE', 'Casual'],
-        ['CCC05', 'DEEPAK KACHVE', 'Casual'],
-        ['CCC06', 'SUNIL KUMAR', 'Casual'],
-        ['CCC07', 'ANKUSH MENGAL', 'Casual'],
-        ['CCC08', 'KRUSHNA PASWAN', 'Casual'],
-        ['CCC09', 'UMESH KUMAR', 'Casual'],
-        ['CCC10', 'ANNASAHEB RAMFALE', 'Casual'],
-        ['CCC11', 'SUKHDEV TAYADE', 'Casual'],
-        ['CCC12', 'SANDIP BHANVAR', 'Casual'],
-        ['CCC13', 'ABHIJIT KALE', 'Casual'],
-        ['CCC14', 'RAJU KHADE', 'Casual']
-      ];
-      for (const w of defaultWorkers) {
-        await pool.query('INSERT INTO workers (id, name, category) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING', w);
-      }
-      console.log('Default workers seeded into Neon PostgreSQL.');
-    }
     console.log('Connected to Neon PostgreSQL database.');
   } catch (err) {
     console.error('Database initialization error:', err);
@@ -101,7 +78,10 @@ app.post('/api/workers/bulk', async (req, res) => {
       );
     }
     res.json({ message: `Successfully imported ${workers.length} employees!` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error('Bulk Import Database Error:', err);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.put('/api/workers/:id', async (req, res) => {
@@ -152,10 +132,8 @@ app.get('/api/dashboard-stats', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Test route
 app.get('/', (req, res) => res.send('Attendance API is running live on Vercel!'));
 
-// VERCEL CONFIGURATION: Export the app instead of listening directly in production
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => console.log(`Server running locally on port ${PORT}`));
 }

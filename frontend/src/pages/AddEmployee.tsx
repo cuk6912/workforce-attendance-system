@@ -33,19 +33,18 @@ export default function AddEmployee() {
   const handleBulkImport = async () => {
     setMessage('Importing... please wait.');
     try {
-      // Using proper backticks here
       const response = await axios.post(`${API_URL}/api/workers/bulk`, bulkEmployees);
       setMessage(response.data.message + ' 🎉');
     } catch (error: any) {
       console.error('Import Error:', error);
-      setMessage(`Error importing list: ${error.message}`);
+      // This line is updated to pull the exact database crash reason from the backend
+      setMessage(`Error: ${error.response?.data?.error || error.message}`);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      // Using proper backticks here
       await axios.post(`${API_URL}/api/workers`, { id, name, category });
       setMessage('Employee added successfully! 🎉');
       setId('');
