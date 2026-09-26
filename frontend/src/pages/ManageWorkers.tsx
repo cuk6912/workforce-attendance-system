@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Users, Trash2 } from 'lucide-react';
+import { Users, Trash2, Edit, Check, X } from 'lucide-react';
 
 interface Worker {
   id: string;
@@ -13,14 +13,17 @@ export default function ManageEmployees() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Edit State
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+
   const fetchWorkers = async () => {
     try {
-      // Hardcoded directly to your live Vercel backend to prevent any routing errors
       const response = await axios.get('https://graphite-api.vercel.app/api/workers');
       setWorkers(response.data);
       setError('');
     } catch (err: any) {
-      console.error('Error fetching workers:', err);
       setError('Failed to load employees. Please try refreshing.');
     } finally {
       setLoading(false);
@@ -34,12 +37,36 @@ export default function ManageEmployees() {
   const handleDelete = async (id: string) => {
     if (!window.confirm(`Are you sure you want to delete employee ${id}?`)) return;
     try {
-      // Hardcoded delete URL
       await axios.delete('https://graphite-api.vercel.app/api/workers/' + id);
       fetchWorkers(); 
     } catch (err) {
-      console.error('Error deleting worker:', err);
       alert('Failed to delete employee.');
+    }
+  };
+
+  const startEdit = (worker: Worker) => {
+    setEditingId(worker.id);
+    setEditName(worker.name);
+    setEditCategory(worker.category);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditName('');
+    setEditCategory('');
+  };
+
+  const saveEdit = async (id: string) => {
+    try {
+      await axios.put(`https://graphite-api.vercel.app/api/workers/${id}`, {
+        name: editName,
+        category: editCategory
+      });
+      setEditingId(null);
+      fetchWorkers(); // Refresh list to show updates
+    } catch (err) {
+      console.error('Error updating worker:', err);
+      alert('Failed to update employee.');
     }
   };
 
@@ -51,11 +78,7 @@ export default function ManageEmployees() {
           <h1 className="text-2xl font-black text-gray-800">Manage Employees / Workers</h1>
         </div>
         
-        {error && (
-          <div className="p-4 bg-red-50 text-red-700 font-bold border-b border-red-100">
-            {error}
-          </div>
-        )}
+        {error && <div className="p-4 bg-red-50 text-red-700 font-bold">{error}</div>}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -69,41 +92,77 @@ export default function ManageEmployees() {
             </thead>
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={4} className="p-8 text-center font-bold text-gray-500 text-lg">
-                    Loading employees from database...
-                  </td>
-                </tr>
+                <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">Loading employees...</td></tr>
               ) : workers.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="p-8 text-center font-bold text-gray-500 text-lg">
-                    No employees found. Please import them from the Add Employee screen.
-                  </td>
-                </tr>
+                <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">No employees found.</td></tr>
               ) : (
                 workers.map(worker => (
-                  <tr key={worker.id} className="border-b hover:bg-gray-50 transition-colors">
-                    <td className="p-4 font-medium text-gray-900">{worker.id}</td>
-                    <td className="p-4 font-bold text-blue-900">{worker.name}</td>
-                    <td className="p-4">
-                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${
-                        worker.category === 'Permanent' ? 'bg-purple-100 text-purple-700' : 
-                        worker.category === 'Contact' ? 'bg-orange-100 text-orange-700' : 
-                        'bg-green-100 text-green-700'
-                      }`}>
-                        {worker.category}
-                      </span>
-                    </td>
-                    <td className="p-4 text-center">
-                      <button 
-                        onClick={() => handleDelete(worker.id)} 
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors cursor-pointer"
-                        title="Delete Employee"
-                      >
-                        <Trash2 size={20} />
-                      </button>
-                    </td>
-                  </tr>
+                  editingId === worker.id ? (
+                    /* EDITING ROW MODE */
+                    <tr key={worker.id} className="border-b bg-blue-50">
+                      <td className="p-4 font-medium text-gray-900">{worker.id}</td>
+                      <td className="p-4">
+                        <input 
+                          type="text" 
+                          value={editName} 
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="w-full border-2 border-blue-300 p-2 rounded font-bold"
+                        />
+                      </td>
+                      <td className="p-4">
+                        <select 
+                          value={editCategory} 
+                          onChange={(e) => setEditCategory(e.target.value)}
+                          className="w-full border-2 border-blue-300 p-2 rounded font-bold"
+                        >
+                          <option value="Permanent">Permanent</option>
+                          <option value="Contact">Contact</option>
+                          <option value="Casual">Casual (Unassigned)</option>
+                          <option value="Casual - Group 1">Casual - Group 1</option>
+                          <option value="Casual - Group 2">Casual - Group 2</option>
+                        </select>
+                      </td>
+                      <td className="p-4 flex justify-center gap-2">
+                        <button onClick={() => saveEdit(worker.id)} className="text-white bg-green-600 hover:bg-green-700 p-2 rounded-lg shadow-sm" title="Save">
+                          <Check size={20} />
+                        </button>
+                        <button onClick={cancelEdit} className="text-white bg-gray-500 hover:bg-gray-600 p-2 rounded-lg shadow-sm" title="Cancel">
+                          <X size={20} />
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    /* NORMAL VIEW ROW */
+                    <tr key={worker.id} className="border-b hover:bg-gray-50 transition-colors">
+                      <td className="p-4 font-medium text-gray-900">{worker.id}</td>
+                      <td className="p-4 font-bold text-blue-900">{worker.name}</td>
+                      <td className="p-4">
+                        <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                          worker.category === 'Permanent' ? 'bg-purple-100 text-purple-700' : 
+                          worker.category === 'Contact' ? 'bg-orange-100 text-orange-700' : 
+                          'bg-green-100 text-green-700'
+                        }`}>
+                          {worker.category}
+                        </span>
+                      </td>
+                      <td className="p-4 flex justify-center gap-2">
+                        <button 
+                          onClick={() => startEdit(worker)} 
+                          className="text-blue-600 hover:bg-blue-100 p-2 rounded-lg transition-colors"
+                          title="Edit Employee"
+                        >
+                          <Edit size={20} />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(worker.id)} 
+                          className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                          title="Delete Employee"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      </td>
+                    </tr>
+                  )
                 ))
               )}
             </tbody>
