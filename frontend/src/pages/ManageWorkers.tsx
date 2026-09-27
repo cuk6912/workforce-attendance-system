@@ -20,11 +20,27 @@ export default function ManageEmployees() {
   const [editGroup, setEditGroup] = useState(''); 
   const [editDOJ, setEditDOJ] = useState('');
 
-  const fetchWorkers = async () => {
+const fetchWorkers = async () => {
+    // 1. INSTANT LOAD from memory
+    const cachedWorkers = sessionStorage.getItem('cached_workers_manager');
+    if (cachedWorkers) {
+      setWorkers(JSON.parse(cachedWorkers));
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
+      // 2. BACKGROUND FETCH
       const response = await axios.get('https://graphite-api.vercel.app/api/workers');
-      setWorkers(response.data); setError('');
-    } catch (err: any) { setError('Failed to load employees.'); } finally { setLoading(false); }
+      setWorkers(response.data);
+      sessionStorage.setItem('cached_workers_manager', JSON.stringify(response.data));
+      setError('');
+    } catch (err: any) { 
+      setError('Failed to load employees.'); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   useEffect(() => { fetchWorkers(); }, []);

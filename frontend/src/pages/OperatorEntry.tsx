@@ -23,11 +23,25 @@ export default function OperatorScreen() {
 
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true);
-      try {
-        const workersRes = await axios.get('https://graphite-api.vercel.app/api/workers');
-        setWorkers(workersRes.data.filter((w: any) => !w.is_archived));
+      // 1. INSTANT LOAD: Check if we already have the workers in memory
+      const cachedWorkers = sessionStorage.getItem('cached_workers');
+      if (cachedWorkers) {
+        setWorkers(JSON.parse(cachedWorkers));
+        setLoading(false); // Immediately hides the "Loading..." text!
+      } else {
+        setLoading(true);
+      }
 
+      try {
+        // 2. BACKGROUND FETCH: Silently get fresh data from the server
+        const workersRes = await axios.get('https://graphite-api.vercel.app/api/workers');
+        const activeWorkers = workersRes.data.filter((w: any) => !w.is_archived);
+        
+        // Update the screen and save to memory for the next tab switch
+        setWorkers(activeWorkers);
+        sessionStorage.setItem('cached_workers', JSON.stringify(activeWorkers));
+
+        // 3. Fetch today's attendance
         const attRes = await axios.get(`https://graphite-api.vercel.app/api/attendance?date=${date}&shift=${shift}`);
         const attMap: Record<string, AttData> = {};
         attRes.data.forEach((record: any) => {
@@ -36,8 +50,13 @@ export default function OperatorScreen() {
             late_in_time: record.late_in_time || '', early_out_time: record.early_out_time || ''
           };
         });
-        setAttendance(attMap); setError('');
-      } catch (err: any) { setError('Failed to load data from the server.'); } finally { setLoading(false); }
+        setAttendance(attMap); 
+        setError('');
+      } catch (err: any) { 
+        setError('Failed to load data from the server.'); 
+      } finally { 
+        setLoading(false); 
+      }
     };
     fetchData();
   }, [date, shift]);
