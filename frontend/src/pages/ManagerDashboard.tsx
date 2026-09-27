@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Users, UserCheck, UserX, Activity, Calendar, FileText, Edit, Clock, Filter, ClipboardList } from 'lucide-react';
+import { Users, UserCheck, UserX, Activity, Calendar, FileText, Edit, Clock, Filter, ClipboardList, RotateCcw } from 'lucide-react';
 import ManagerAuth from '../components/ManagerAuth'; 
 
 export default function Dashboard() {
   const getToday = () => new Date().toISOString().split('T')[0];
-  
-  // --- TAB STATE ---
-  const [activeTab, setActiveTab] = useState('Overview'); // 'Overview' or 'Modify'
+  const [activeTab, setActiveTab] = useState('Overview'); 
 
   // --- OVERVIEW TAB STATE ---
   const [startDate, setStartDate] = useState(getToday());
@@ -23,7 +21,6 @@ export default function Dashboard() {
   const [modAttendance, setModAttendance] = useState<Record<string, any>>({});
   const [modLoading, setModLoading] = useState(false);
 
-  // 1. Fetch Overview Stats
   useEffect(() => {
     if (activeTab !== 'Overview') return;
     const fetchStats = async () => {
@@ -36,19 +33,17 @@ export default function Dashboard() {
     fetchStats();
   }, [startDate, endDate, activeTab]);
 
-  // 2. Fetch Modify Data (Manager Edit Mode)
   useEffect(() => {
     if (activeTab !== 'Modify') return;
     const fetchModData = async () => {
       setModLoading(true);
       try {
         const wRes = await axios.get('https://graphite-api.vercel.app/api/workers');
-        setModWorkers(wRes.data.filter((w: any) => !w.is_archived)); // Hide deleted employees
-        
+        setModWorkers(wRes.data.filter((w: any) => !w.is_archived)); 
         const aRes = await axios.get(`https://graphite-api.vercel.app/api/attendance?date=${modDate}&shift=${modShift}`);
         const aMap: Record<string, any> = {};
         aRes.data.forEach((r: any) => {
-          aMap[r.worker_id] = { status: r.status, late_in: r.late_in, early_out: r.early_out };
+          aMap[r.worker_id] = { status: r.status, late_in: r.late_in, early_out: r.early_out, late_in_time: r.late_in_time || '', early_out_time: r.early_out_time || '' };
         });
         setModAttendance(aMap);
       } catch (err) { console.error(err); } finally { setModLoading(false); }
@@ -56,10 +51,8 @@ export default function Dashboard() {
     fetchModData();
   }, [modDate, modShift, activeTab]);
 
-  // --- OVERVIEW FUNCTIONS ---
   const setPreset = (type: string) => {
-    const today = new Date();
-    setEndDate(getToday());
+    const today = new Date(); setEndDate(getToday());
     if (type === 'Today') setStartDate(getToday());
     if (type === 'Week') {
       const first = today.getDate() - today.getDay() + 1;
@@ -73,9 +66,10 @@ export default function Dashboard() {
     try {
       const res = await axios.get(`https://graphite-api.vercel.app/api/reports/attendance?start=${startDate}&end=${endDate}`);
       if (res.data.length === 0) return alert('No attendance records found.');
-      const headers = ['Date', 'Shift', 'Emp ID', 'Name', 'Category', 'Group', 'Status', 'Late In', 'Early Out'];
+      // UPDATED HEADERS for Time Tracking
+      const headers = ['Date', 'Shift', 'Emp ID', 'Name', 'Category', 'Group', 'Status', 'Late In', 'Time In', 'Early Out', 'Time Out'];
       const csvRows = [headers.join(',')];
-      res.data.forEach((r: any) => csvRows.push([r.date, r.shift, r.id, `"${r.name}"`, `"${r.category}"`, `"${r.worker_group || ''}"`, r.status, r.late_in ? 'Yes' : 'No', r.early_out ? 'Yes' : 'No'].join(',')));
+      res.data.forEach((r: any) => csvRows.push([r.date, r.shift, r.id, `"${r.name}"`, `"${r.category}"`, `"${r.worker_group || ''}"`, r.status, r.late_in ? 'Yes' : 'No', r.late_in_time || '-', r.early_out ? 'Yes' : 'No', r.early_out_time || '-'].join(',')));
       triggerDownload(csvRows, `Raw_Attendance_${startDate}_to_${endDate}.csv`);
     } catch (err) { alert('Failed to download report.'); }
   };
@@ -97,24 +91,32 @@ export default function Dashboard() {
     const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', filename); a.click();
   };
 
-  // --- MODIFY FUNCTIONS ---
   const handleModGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const group = e.target.value;
-    setModGroup(group);
+    const group = e.target.value; setModGroup(group);
     if (group !== 'Regular') setModShift('Day'); else setModShift('G');
   };
 
-  const updateAttendance = async (worker_id: string, status: string, late_in: boolean, early_out: boolean) => {
-    setModAttendance(prev => ({ ...prev, [worker_id]: { status, late_in, early_out } }));
-    try {
-      await axios.post('https://graphite-api.vercel.app/api/attendance', {
-        worker_id, date: modDate, shift: modShift, status, late_in, early_out
-      });
-    } catch (err) { alert(`Failed to update attendance for ${worker_id}.`); }
+  // NEW: Unified Update for Manager Edit Mode
+  const updateModAttendance = async (worker_id: string, updates: any) => {
+    const current = modAttendance[worker_id] || { status: '', late_in: false, early_out: false, late_in_time: '', early_out_time: '' };
+    const nextState = { ...current, ...updates };
+    if (!nextState.late_in) nextState.late_in_time = '';
+    if (!nextState.early_out) nextState.early_out_time = '';
+
+    setModAttendance(prev => ({ ...prev, [worker_id]: nextState }));
+    try { await axios.post('https://graphite-api.vercel.app/api/attendance', { worker_id, date: modDate, shift: modShift, ...nextState }); } 
+    catch (err) { alert(`Failed to save for ${worker_id}.`); }
+  };
+
+  // NEW: Clear Button for Manager Edit Mode
+  const clearModAttendance = async (worker_id: string) => {
+    if (!window.confirm('Delete/undo this attendance record?')) return;
+    setModAttendance(prev => { const copy = { ...prev }; delete copy[worker_id]; return copy; });
+    try { await axios.delete(`https://graphite-api.vercel.app/api/attendance/record?worker_id=${worker_id}&date=${modDate}&shift=${modShift}`); } 
+    catch (err) { alert(`Failed to clear record.`); }
   };
 
   const casualGroups = Array.from(new Set(modWorkers.filter(w => w.category === 'Casual' && w.worker_group).map(w => w.worker_group as string))).sort();
-
   const filteredModWorkers = modWorkers.filter(w => {
     if (modGroup === 'Regular') return w.category === 'Permanent' || w.category === 'Contact';
     const isUnassignedCasual = w.category === 'Casual' && (!w.worker_group || w.worker_group.trim() === '');
@@ -127,28 +129,18 @@ export default function Dashboard() {
       <div className="min-h-screen bg-gray-100 p-4 md:p-6">
         <div className="max-w-6xl mx-auto">
           
-          {/* TAB NAVIGATION */}
           <div className="flex flex-wrap gap-4 mb-6 border-b border-gray-300 pb-4">
-            <button onClick={() => setActiveTab('Overview')} className={`px-6 py-2 font-black rounded-lg transition-all ${activeTab === 'Overview' ? 'bg-blue-600 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
-              <Activity size={18} className="inline mr-2 -mt-1" /> Overview & Reports
-            </button>
-            <button onClick={() => setActiveTab('Modify')} className={`px-6 py-2 font-black rounded-lg transition-all ${activeTab === 'Modify' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
-              <Edit size={18} className="inline mr-2 -mt-1" /> Edit Attendance Logs
-            </button>
+            <button onClick={() => setActiveTab('Overview')} className={`px-6 py-2 font-black rounded-lg transition-all ${activeTab === 'Overview' ? 'bg-blue-600 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}><Activity size={18} className="inline mr-2 -mt-1" /> Overview & Reports</button>
+            <button onClick={() => setActiveTab('Modify')} className={`px-6 py-2 font-black rounded-lg transition-all ${activeTab === 'Modify' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}><Edit size={18} className="inline mr-2 -mt-1" /> Edit Attendance Logs</button>
           </div>
 
-          {/* ======================================= */}
-          {/*          TAB 1: OVERVIEW                */}
-          {/* ======================================= */}
           {activeTab === 'Overview' && (
             <div className="space-y-6 animate-fadeIn">
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                 <h3 className="text-lg font-bold text-gray-700 mb-4 border-b pb-2">Report Date Filters</h3>
                 <div className="flex flex-wrap gap-3 mb-6">
                   {['Today', 'Week', 'Month', 'Year'].map(type => (
-                    <button key={type} onClick={() => setPreset(type)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors border border-slate-300 cursor-pointer">
-                      This {type}
-                    </button>
+                    <button key={type} onClick={() => setPreset(type)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors border border-slate-300 cursor-pointer">This {type}</button>
                   ))}
                 </div>
                 <div className="flex flex-wrap items-center gap-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
@@ -163,25 +155,13 @@ export default function Dashboard() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4">
-                  <div className="p-4 bg-blue-100 rounded-lg text-blue-600"><Users size={32} /></div>
-                  <div><p className="text-gray-500 font-bold uppercase text-sm">Active Employees</p><h2 className="text-4xl font-black text-gray-800">{loading ? '...' : stats.total}</h2></div>
-                </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4">
-                  <div className="p-4 bg-green-100 rounded-lg text-green-600"><UserCheck size={32} /></div>
-                  <div><p className="text-gray-500 font-bold uppercase text-sm">Present in Range</p><h2 className="text-4xl font-black text-gray-800">{loading ? '...' : stats.present}</h2></div>
-                </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4">
-                  <div className="p-4 bg-red-100 rounded-lg text-red-600"><UserX size={32} /></div>
-                  <div><p className="text-gray-500 font-bold uppercase text-sm">Absent in Range</p><h2 className="text-4xl font-black text-gray-800">{loading ? '...' : stats.absent}</h2></div>
-                </div>
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-4 bg-blue-100 rounded-lg text-blue-600"><Users size={32} /></div><div><p className="text-gray-500 font-bold uppercase text-sm">Active Employees</p><h2 className="text-4xl font-black text-gray-800">{loading ? '...' : stats.total}</h2></div></div>
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-4 bg-green-100 rounded-lg text-green-600"><UserCheck size={32} /></div><div><p className="text-gray-500 font-bold uppercase text-sm">Present in Range</p><h2 className="text-4xl font-black text-gray-800">{loading ? '...' : stats.present}</h2></div></div>
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-4 bg-red-100 rounded-lg text-red-600"><UserX size={32} /></div><div><p className="text-gray-500 font-bold uppercase text-sm">Absent in Range</p><h2 className="text-4xl font-black text-gray-800">{loading ? '...' : stats.absent}</h2></div></div>
               </div>
             </div>
           )}
 
-          {/* ======================================= */}
-          {/*          TAB 2: MODIFY LOGS             */}
-          {/* ======================================= */}
           {activeTab === 'Modify' && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-fadeIn">
               <div className="p-6 border-b border-gray-200 bg-purple-900 text-white flex flex-col md:flex-row justify-between items-center gap-4">
@@ -197,11 +177,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2 bg-purple-800 p-2 rounded-lg flex-1 min-w-[150px] border border-purple-700"><Clock size={20} className="text-purple-300" />
                     <select value={modShift} onChange={e => setModShift(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer w-full">
-                      {modGroup === 'Regular' ? (
-                        <><option value="G" className="text-black">G Shift</option><option value="A" className="text-black">Shift A</option><option value="B" className="text-black">Shift B</option><option value="C" className="text-black">Shift C</option></>
-                      ) : (
-                        <><option value="Day" className="text-black">Day Shift</option><option value="Night" className="text-black">Night Shift</option></>
-                      )}
+                      {modGroup === 'Regular' ? (<><option value="G" className="text-black">G Shift</option><option value="A" className="text-black">Shift A</option><option value="B" className="text-black">Shift B</option><option value="C" className="text-black">Shift C</option></>) : (<><option value="Day" className="text-black">Day Shift</option><option value="Night" className="text-black">Night Shift</option></>)}
                     </select>
                   </div>
                 </div>
@@ -223,23 +199,35 @@ export default function Dashboard() {
                      filteredModWorkers.map(worker => {
                        const current = modAttendance[worker.id] || { status: '', late_in: false, early_out: false };
                        return (
-                         <tr key={worker.id} className={`border-b transition-colors ${current.status ? 'bg-purple-50/30 hover:bg-purple-50' : 'hover:bg-gray-50'}`}>
+                         <tr key={worker.id} className={`border-b transition-colors ${current.status ? 'bg-purple-50/30' : 'hover:bg-gray-50'}`}>
                            <td className="p-4 font-medium text-gray-900">{worker.id}</td>
                            <td className="p-4 font-bold text-blue-900">{worker.name}</td>
                            <td className="p-4"><span className="px-3 py-1 bg-gray-200 rounded-full text-xs font-bold text-gray-700">{worker.worker_group || 'Unassigned'}</span></td>
                            <td className="p-4 flex flex-col items-center gap-2">
-                             <div className="flex justify-center gap-3">
-                               <button onClick={() => updateAttendance(worker.id, 'PRESENT', current.late_in, current.early_out)} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'PRESENT' ? 'bg-green-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-green-100'}`}>PRESENT</button>
-                               <button onClick={() => updateAttendance(worker.id, 'ABSENT', false, false)} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'ABSENT' ? 'bg-red-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-red-100'}`}>ABSENT</button>
+                             <div className="flex justify-center gap-2">
+                               <button onClick={() => updateModAttendance(worker.id, { status: 'PRESENT' })} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'PRESENT' ? 'bg-green-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-green-100'}`}>PRESENT</button>
+                               <button onClick={() => updateModAttendance(worker.id, { status: 'ABSENT' })} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'ABSENT' ? 'bg-red-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-red-100'}`}>ABSENT</button>
+                               {current.status && (
+                                 <button onClick={() => clearModAttendance(worker.id)} className="px-3 py-2 rounded-lg bg-gray-200 text-gray-500 hover:bg-red-100 hover:text-red-700 transition-colors" title="Undo / Clear Marking">
+                                   <RotateCcw size={20} />
+                                 </button>
+                               )}
                              </div>
+                             
                              {current.status === 'PRESENT' && (
-                               <div className="flex gap-4 mt-1 bg-white px-3 py-1.5 rounded border border-purple-200 shadow-sm">
-                                 <label className="flex items-center gap-1.5 text-sm font-bold text-purple-900 cursor-pointer">
-                                   <input type="checkbox" checked={current.late_in} onChange={(e) => updateAttendance(worker.id, current.status, e.target.checked, current.early_out)} className="w-4 h-4 cursor-pointer accent-purple-600" /> Late In
-                                 </label>
-                                 <label className="flex items-center gap-1.5 text-sm font-bold text-purple-900 cursor-pointer">
-                                   <input type="checkbox" checked={current.early_out} onChange={(e) => updateAttendance(worker.id, current.status, current.late_in, e.target.checked)} className="w-4 h-4 cursor-pointer accent-purple-600" /> Early Out
-                                 </label>
+                               <div className="flex flex-col gap-2 mt-1 w-full max-w-sm">
+                                 <div className="flex items-center justify-between bg-white px-3 py-2 rounded border border-purple-200 shadow-sm">
+                                   <label className="flex items-center gap-2 text-sm font-bold text-purple-900 cursor-pointer">
+                                     <input type="checkbox" checked={current.late_in} onChange={(e) => updateModAttendance(worker.id, { late_in: e.target.checked })} className="w-4 h-4 cursor-pointer accent-purple-600" /> Late In
+                                   </label>
+                                   {current.late_in && <input type="time" value={current.late_in_time || ''} onChange={(e) => updateModAttendance(worker.id, { late_in_time: e.target.value })} className="border border-gray-300 rounded p-1 text-sm font-bold outline-none focus:border-purple-500" />}
+                                 </div>
+                                 <div className="flex items-center justify-between bg-white px-3 py-2 rounded border border-purple-200 shadow-sm">
+                                   <label className="flex items-center gap-2 text-sm font-bold text-purple-900 cursor-pointer">
+                                     <input type="checkbox" checked={current.early_out} onChange={(e) => updateModAttendance(worker.id, { early_out: e.target.checked })} className="w-4 h-4 cursor-pointer accent-purple-600" /> Early Out
+                                   </label>
+                                   {current.early_out && <input type="time" value={current.early_out_time || ''} onChange={(e) => updateModAttendance(worker.id, { early_out_time: e.target.value })} className="border border-gray-300 rounded p-1 text-sm font-bold outline-none focus:border-purple-500" />}
+                                 </div>
                                </div>
                              )}
                            </td>
@@ -251,7 +239,6 @@ export default function Dashboard() {
               </div>
             </div>
           )}
-
         </div>
       </div>
     </ManagerAuth>

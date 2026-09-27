@@ -27,10 +27,12 @@ async function initDB() {
   try {
     await pool.query(`CREATE TABLE IF NOT EXISTS workers (id TEXT PRIMARY KEY, name TEXT, category TEXT, worker_group TEXT DEFAULT '');`);
     await pool.query(`CREATE TABLE IF NOT EXISTS attendance (id SERIAL PRIMARY KEY, worker_id TEXT, date TEXT, shift TEXT, status TEXT, late_in BOOLEAN DEFAULT false, early_out BOOLEAN DEFAULT false, CONSTRAINT unique_worker_date_shift UNIQUE (worker_id, date, shift));`);
-    
-    // NEW: Add Date of Joining and Archive columns safely
     await pool.query(`ALTER TABLE workers ADD COLUMN IF NOT EXISTS date_of_joining TEXT DEFAULT '';`);
     await pool.query(`ALTER TABLE workers ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;`);
+    
+    // NEW: Add specific time columns for Late In and Early Out
+    await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS late_in_time TEXT DEFAULT '';`);
+    await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS early_out_time TEXT DEFAULT '';`);
   } catch (err) { console.error(err); }
 }
 initDB();
@@ -41,10 +43,7 @@ app.get('/api/workers', requireDB, async (req, res) => {
 
 app.post('/api/workers', requireDB, async (req, res) => {
   try {
-    await pool.query(
-      'INSERT INTO workers (id, name, category, worker_group, date_of_joining) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, worker_group = EXCLUDED.worker_group, date_of_joining = EXCLUDED.date_of_joining', 
-      [req.body.id, req.body.name, req.body.category, req.body.worker_group || '', req.body.date_of_joining || '']
-    );
+    await pool.query('INSERT INTO workers (id, name, category, worker_group, date_of_joining) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, worker_group = EXCLUDED.worker_group, date_of_joining = EXCLUDED.date_of_joining', [req.body.id, req.body.name, req.body.category, req.body.worker_group || '', req.body.date_of_joining || '']);
     res.json({ message: 'Saved' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -59,15 +58,11 @@ app.post('/api/workers/bulk', requireDB, async (req, res) => {
 
 app.put('/api/workers/:id', requireDB, async (req, res) => {
   try {
-    await pool.query(
-      'UPDATE workers SET name = $1, category = $2, worker_group = $3, date_of_joining = $4, is_archived = $5 WHERE id = $6', 
-      [req.body.name, req.body.category, req.body.worker_group || '', req.body.date_of_joining || '', req.body.is_archived || false, req.params.id]
-    );
+    await pool.query('UPDATE workers SET name = $1, category = $2, worker_group = $3, date_of_joining = $4, is_archived = $5 WHERE id = $6', [req.body.name, req.body.category, req.body.worker_group || '', req.body.date_of_joining || '', req.body.is_archived || false, req.params.id]);
     res.json({ message: 'Updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ARCHIVE INSTEAD OF DELETE (Soft Delete)
 app.delete('/api/workers/:id', requireDB, async (req, res) => {
   try {
     await pool.query('UPDATE workers SET is_archived = true WHERE id = $1', [req.params.id]);
@@ -75,10 +70,24 @@ app.delete('/api/workers/:id', requireDB, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// NEW: Save attendance with times
 app.post('/api/attendance', requireDB, async (req, res) => {
+  const { worker_id, date, shift, status, late_in = false, early_out = false, late_in_time = '', early_out_time = '' } = req.body;
   try {
-    await pool.query('INSERT INTO attendance (worker_id, date, shift, status, late_in, early_out) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (worker_id, date, shift) DO UPDATE SET status = EXCLUDED.status, late_in = EXCLUDED.late_in, early_out = EXCLUDED.early_out', [req.body.worker_id, req.body.date, req.body.shift, req.body.status, req.body.late_in || false, req.body.early_out || false]);
+    await pool.query(
+      'INSERT INTO attendance (worker_id, date, shift, status, late_in, early_out, late_in_time, early_out_time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (worker_id, date, shift) DO UPDATE SET status = EXCLUDED.status, late_in = EXCLUDED.late_in, early_out = EXCLUDED.early_out, late_in_time = EXCLUDED.late_in_time, early_out_time = EXCLUDED.early_out_time', 
+      [worker_id, date, shift, status, late_in, early_out, late_in_time, early_out_time]
+    );
     res.json({ message: 'Saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// NEW: Delete specific attendance record (Undo accidental marks)
+app.delete('/api/attendance/record', requireDB, async (req, res) => {
+  const { worker_id, date, shift } = req.query;
+  try {
+    await pool.query('DELETE FROM attendance WHERE worker_id = $1 AND date = $2 AND shift = $3', [worker_id, date, shift]);
+    res.json({ message: 'Record cleared' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -100,16 +109,15 @@ app.get('/api/dashboard-stats', requireDB, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// RAW EXPORT
+// RAW EXPORT (Now includes times)
 app.get('/api/reports/attendance', requireDB, async (req, res) => {
   const { start, end } = req.query;
   try {
-    const result = await pool.query(`SELECT a.date, a.shift, w.id, w.name, w.category, w.worker_group, a.status, a.late_in, a.early_out FROM attendance a JOIN workers w ON a.worker_id = w.id WHERE a.date >= $1 AND a.date <= $2 ORDER BY a.date DESC, a.shift, w.id`, [start, end]);
+    const result = await pool.query(`SELECT a.date, a.shift, w.id, w.name, w.category, w.worker_group, a.status, a.late_in, a.early_out, a.late_in_time, a.early_out_time FROM attendance a JOIN workers w ON a.worker_id = w.id WHERE a.date >= $1 AND a.date <= $2 ORDER BY a.date DESC, a.shift, w.id`, [start, end]);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// NEW: EMPLOYEE-WISE SUMMARY REPORT
 app.get('/api/reports/employee-summary', requireDB, async (req, res) => {
   const { start, end } = req.query;
   try {
@@ -119,10 +127,8 @@ app.get('/api/reports/employee-summary', requireDB, async (req, res) => {
         COUNT(CASE WHEN a.status = 'ABSENT' THEN 1 END) as total_absent,
         COUNT(CASE WHEN a.late_in = true THEN 1 END) as total_late_in,
         COUNT(CASE WHEN a.early_out = true THEN 1 END) as total_early_out
-      FROM workers w
-      LEFT JOIN attendance a ON w.id = a.worker_id AND a.date >= $1 AND a.date <= $2
-      GROUP BY w.id, w.name, w.category, w.worker_group, w.date_of_joining, w.is_archived
-      ORDER BY w.id
+      FROM workers w LEFT JOIN attendance a ON w.id = a.worker_id AND a.date >= $1 AND a.date <= $2
+      GROUP BY w.id, w.name, w.category, w.worker_group, w.date_of_joining, w.is_archived ORDER BY w.id
     `, [start, end]);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
