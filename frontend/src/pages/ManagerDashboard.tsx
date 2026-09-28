@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Users, UserCheck, UserX, Activity, Calendar, FileText, Edit, Clock, Filter, ClipboardList, RotateCcw } from 'lucide-react';
+import { Users, UserCheck, UserX, Activity, Calendar, FileText, Edit, Clock, Filter, ClipboardList, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
 import ManagerAuth from '../components/ManagerAuth'; 
 
 export default function Dashboard() {
@@ -12,6 +12,10 @@ export default function Dashboard() {
   const [endDate, setEndDate] = useState(getToday());
   const [stats, setStats] = useState({ total: 0, present: 0, absent: 0 });
   const [loading, setLoading] = useState(true);
+  
+  // Shift-Wise Today Data
+  const [todayData, setTodayData] = useState<Record<string, { present: any[], absent: any[] }>>({});
+  const [expandedShifts, setExpandedShifts] = useState<Record<string, boolean>>({});
 
   // --- MODIFY TAB STATE ---
   const [modDate, setModDate] = useState(getToday());
@@ -28,6 +32,16 @@ export default function Dashboard() {
       try {
         const response = await axios.get(`https://graphite-api.vercel.app/api/dashboard-stats?start=${startDate}&end=${endDate}`);
         setStats(response.data);
+        
+        // Fetch Today's Shift Data
+        const todayRes = await axios.get(`https://graphite-api.vercel.app/api/dashboard/today-list?date=${getToday()}`);
+        const grouped = todayRes.data.reduce((acc: any, curr: any) => {
+          if (!acc[curr.shift]) acc[curr.shift] = { present: [], absent: [] };
+          if (curr.status === 'PRESENT') acc[curr.shift].present.push(curr);
+          if (curr.status === 'ABSENT') acc[curr.shift].absent.push(curr);
+          return acc;
+        }, {});
+        setTodayData(grouped);
       } catch (err: any) { console.error(err); } finally { setLoading(false); }
     };
     fetchStats();
@@ -43,7 +57,7 @@ export default function Dashboard() {
         const aRes = await axios.get(`https://graphite-api.vercel.app/api/attendance?date=${modDate}&shift=${modShift}`);
         const aMap: Record<string, any> = {};
         aRes.data.forEach((r: any) => {
-          aMap[r.worker_id] = { status: r.status, late_in: r.late_in, early_out: r.early_out, late_in_time: r.late_in_time || '', early_out_time: r.early_out_time || '' };
+          aMap[r.worker_id] = { status: r.status, late_in: r.late_in, early_out: r.early_out, late_in_time: r.late_in_time || '', early_out_time: r.early_out_time || '', ot_hours: r.ot_hours || '' };
         });
         setModAttendance(aMap);
       } catch (err) { console.error(err); } finally { setModLoading(false); }
@@ -62,14 +76,17 @@ export default function Dashboard() {
     if (type === 'Year') setStartDate(new Date(today.getFullYear(), 0, 1).toISOString().split('T')[0]);
   };
 
+  const toggleShiftExpand = (shift: string) => {
+    setExpandedShifts(prev => ({ ...prev, [shift]: !prev[shift] }));
+  };
+
   const downloadRawReport = async () => {
     try {
       const res = await axios.get(`https://graphite-api.vercel.app/api/reports/attendance?start=${startDate}&end=${endDate}`);
       if (res.data.length === 0) return alert('No attendance records found.');
-      // UPDATED HEADERS for Time Tracking
-      const headers = ['Date', 'Shift', 'Emp ID', 'Name', 'Category', 'Group', 'Status', 'Late In', 'Time In', 'Early Out', 'Time Out'];
+      const headers = ['Date', 'Shift', 'Emp ID', 'Name', 'Category', 'Group', 'Status', 'Late In', 'Time In', 'Early Out', 'Time Out', 'OT Hours'];
       const csvRows = [headers.join(',')];
-      res.data.forEach((r: any) => csvRows.push([r.date, r.shift, r.id, `"${r.name}"`, `"${r.category}"`, `"${r.worker_group || ''}"`, r.status, r.late_in ? 'Yes' : 'No', r.late_in_time || '-', r.early_out ? 'Yes' : 'No', r.early_out_time || '-'].join(',')));
+      res.data.forEach((r: any) => csvRows.push([r.date, r.shift, r.id, `"${r.name}"`, `"${r.category}"`, `"${r.worker_group || ''}"`, r.status, r.late_in ? 'Yes' : 'No', r.late_in_time || '-', r.early_out ? 'Yes' : 'No', r.early_out_time || '-', r.ot_hours || '0'].join(',')));
       triggerDownload(csvRows, `Raw_Attendance_${startDate}_to_${endDate}.csv`);
     } catch (err) { alert('Failed to download report.'); }
   };
@@ -78,9 +95,9 @@ export default function Dashboard() {
     try {
       const res = await axios.get(`https://graphite-api.vercel.app/api/reports/employee-summary?start=${startDate}&end=${endDate}`);
       if (res.data.length === 0) return alert('No records found.');
-      const headers = ['Emp ID', 'Name', 'Category', 'Group', 'Date of Joining', 'Active Status', 'Total Present Days', 'Total Absent Days', 'Total Late Ins', 'Total Early Outs'];
+      const headers = ['Emp ID', 'Name', 'Category', 'Group', 'Date of Joining', 'Active Status', 'Total Present Days', 'Total Absent Days', 'Total Late Ins', 'Total Early Outs', 'Total OT Hours'];
       const csvRows = [headers.join(',')];
-      res.data.forEach((r: any) => csvRows.push([r.id, `"${r.name}"`, `"${r.category}"`, `"${r.worker_group || ''}"`, r.date_of_joining || 'N/A', r.is_archived ? 'Archived' : 'Active', r.total_present, r.total_absent, r.total_late_in, r.total_early_out].join(',')));
+      res.data.forEach((r: any) => csvRows.push([r.id, `"${r.name}"`, `"${r.category}"`, `"${r.worker_group || ''}"`, r.date_of_joining || 'N/A', r.is_archived ? 'Archived' : 'Active', r.total_present, r.total_absent, r.total_late_in, r.total_early_out, r.total_ot_hours].join(',')));
       triggerDownload(csvRows, `Employee_Summary_${startDate}_to_${endDate}.csv`);
     } catch (err) { alert('Failed to download report.'); }
   };
@@ -96,9 +113,8 @@ export default function Dashboard() {
     if (group !== 'Regular') setModShift('Day'); else setModShift('G');
   };
 
-  // NEW: Unified Update for Manager Edit Mode
   const updateModAttendance = async (worker_id: string, updates: any) => {
-    const current = modAttendance[worker_id] || { status: '', late_in: false, early_out: false, late_in_time: '', early_out_time: '' };
+    const current = modAttendance[worker_id] || { status: '', late_in: false, early_out: false, late_in_time: '', early_out_time: '', ot_hours: '' };
     const nextState = { ...current, ...updates };
     if (!nextState.late_in) nextState.late_in_time = '';
     if (!nextState.early_out) nextState.early_out_time = '';
@@ -108,7 +124,6 @@ export default function Dashboard() {
     catch (err) { alert(`Failed to save for ${worker_id}.`); }
   };
 
-  // NEW: Clear Button for Manager Edit Mode
   const clearModAttendance = async (worker_id: string) => {
     if (!window.confirm('Delete/undo this attendance record?')) return;
     setModAttendance(prev => { const copy = { ...prev }; delete copy[worker_id]; return copy; });
@@ -159,6 +174,53 @@ export default function Dashboard() {
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-4 bg-green-100 rounded-lg text-green-600"><UserCheck size={32} /></div><div><p className="text-gray-500 font-bold uppercase text-sm">Present in Range</p><h2 className="text-4xl font-black text-gray-800">{loading ? '...' : stats.present}</h2></div></div>
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-4 bg-red-100 rounded-lg text-red-600"><UserX size={32} /></div><div><p className="text-gray-500 font-bold uppercase text-sm">Absent in Range</p><h2 className="text-4xl font-black text-gray-800">{loading ? '...' : stats.absent}</h2></div></div>
               </div>
+
+              {/* NEW: Today's Expandable Shift List */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mt-8">
+                <h3 className="text-xl font-black text-gray-800 mb-4 border-b pb-2 flex items-center gap-2"><Clock size={24} className="text-blue-600"/> Today's Attendance by Shift</h3>
+                {Object.keys(todayData).length === 0 ? (
+                  <p className="text-gray-500 font-bold">No attendance marked for today yet.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {Object.entries(todayData).map(([shiftName, data]) => (
+                      <div key={shiftName} className="border border-gray-200 rounded-lg overflow-hidden">
+                        <button onClick={() => toggleShiftExpand(shiftName)} className="w-full flex justify-between items-center p-4 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
+                          <span className="font-black text-lg text-slate-800">Shift: {shiftName}</span>
+                          <div className="flex items-center gap-4">
+                            <span className="text-sm font-bold text-green-700 bg-green-100 px-2 py-1 rounded">{data.present.length} Present</span>
+                            <span className="text-sm font-bold text-red-700 bg-red-100 px-2 py-1 rounded">{data.absent.length} Absent</span>
+                            {expandedShifts[shiftName] ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                          </div>
+                        </button>
+                        
+                        {expandedShifts[shiftName] && (
+                          <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-gray-200">
+                            <div>
+                              <h4 className="font-bold text-green-700 mb-2 border-b border-green-200 pb-1">Present Employees</h4>
+                              <ul className="space-y-1">
+                                {data.present.length === 0 ? <li className="text-gray-400 italic">None</li> : data.present.map(emp => (
+                                  <li key={emp.id} className="text-sm font-medium flex justify-between">
+                                    <span>{emp.name} <span className="text-xs text-gray-500">({emp.id})</span></span>
+                                    {emp.ot_hours > 0 && <span className="text-xs font-bold text-purple-600 bg-purple-100 px-1.5 rounded">OT: {emp.ot_hours}h</span>}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-red-700 mb-2 border-b border-red-200 pb-1">Absent Employees</h4>
+                              <ul className="space-y-1">
+                                {data.absent.length === 0 ? <li className="text-gray-400 italic">None</li> : data.absent.map(emp => (
+                                  <li key={emp.id} className="text-sm font-medium">{emp.name} <span className="text-xs text-gray-500">({emp.id})</span></li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -198,6 +260,7 @@ export default function Dashboard() {
                      filteredModWorkers.length === 0 ? <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">No employees found.</td></tr> :
                      filteredModWorkers.map(worker => {
                        const current = modAttendance[worker.id] || { status: '', late_in: false, early_out: false };
+                       const canHaveOT = worker.category === 'Permanent' || worker.category === 'Contact';
                        return (
                          <tr key={worker.id} className={`border-b transition-colors ${current.status ? 'bg-purple-50/30' : 'hover:bg-gray-50'}`}>
                            <td className="p-4 font-medium text-gray-900">{worker.id}</td>
@@ -208,9 +271,7 @@ export default function Dashboard() {
                                <button onClick={() => updateModAttendance(worker.id, { status: 'PRESENT' })} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'PRESENT' ? 'bg-green-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-green-100'}`}>PRESENT</button>
                                <button onClick={() => updateModAttendance(worker.id, { status: 'ABSENT' })} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'ABSENT' ? 'bg-red-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-red-100'}`}>ABSENT</button>
                                {current.status && (
-                                 <button onClick={() => clearModAttendance(worker.id)} className="px-3 py-2 rounded-lg bg-gray-200 text-gray-500 hover:bg-red-100 hover:text-red-700 transition-colors" title="Undo / Clear Marking">
-                                   <RotateCcw size={20} />
-                                 </button>
+                                 <button onClick={() => clearModAttendance(worker.id)} className="px-3 py-2 rounded-lg bg-gray-200 text-gray-500 hover:bg-red-100 hover:text-red-700 transition-colors" title="Undo / Clear Marking"><RotateCcw size={20} /></button>
                                )}
                              </div>
                              
@@ -228,6 +289,13 @@ export default function Dashboard() {
                                    </label>
                                    {current.early_out && <input type="time" value={current.early_out_time || ''} onChange={(e) => updateModAttendance(worker.id, { early_out_time: e.target.value })} className="border border-gray-300 rounded p-1 text-sm font-bold outline-none focus:border-purple-500" />}
                                  </div>
+                                 {/* NEW: Manager OT Edit Box */}
+                                 {canHaveOT && (
+                                   <div className="flex items-center justify-between bg-purple-50 px-3 py-2 rounded border border-purple-200 shadow-sm">
+                                     <label className="text-sm font-bold text-purple-900">OT (Hours)</label>
+                                     <input type="number" step="0.5" min="0" placeholder="0" value={current.ot_hours || ''} onChange={(e) => updateModAttendance(worker.id, { ot_hours: e.target.value })} className="border border-purple-300 rounded p-1 w-20 text-sm font-bold outline-none focus:border-purple-600" />
+                                   </div>
+                                 )}
                                </div>
                              )}
                            </td>
