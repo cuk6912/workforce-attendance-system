@@ -1,169 +1,157 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import { ClipboardList, Calendar, Clock, Filter, RotateCcw } from 'lucide-react';
+import dotenv from 'dotenv';
+dotenv.config();
+import express from 'express';
+import pg from 'pg';
+const { Pool } = pg;
+import cors from 'cors';
 
-interface Worker { id: string; name: string; category: string; worker_group?: string; }
-interface AttData { status: string; late_in: boolean; early_out: boolean; late_in_time?: string; early_out_time?: string; ot_hours?: string | number; }
+const app = express();
+const PORT = process.env.PORT || 5000;
 
-export default function OperatorScreen() {
-  const [workers, setWorkers] = useState<Worker[]>([]);
-  const [attendance, setAttendance] = useState<Record<string, AttData>>({});
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [employeeGroup, setEmployeeGroup] = useState('Regular'); 
-  const [shift, setShift] = useState('G');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+app.use(cors());
+app.use(express.json());
 
-  const casualGroups = Array.from(new Set(workers.filter(w => w.category === 'Casual' && w.worker_group).map(w => w.worker_group as string))).sort();
-
-  const handleGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const group = e.target.value; setEmployeeGroup(group);
-    if (group !== 'Regular') setShift('Day'); else setShift('G');
-  };
-
-  useEffect(() => {
-    const fetchData = async () => {
-      const cachedWorkers = sessionStorage.getItem('cached_workers');
-      if (cachedWorkers) { setWorkers(JSON.parse(cachedWorkers)); setLoading(false); } else { setLoading(true); }
-      try {
-        const workersRes = await axios.get('https://graphite-api.vercel.app/api/workers');
-        const activeWorkers = workersRes.data.filter((w: any) => !w.is_archived);
-        setWorkers(activeWorkers);
-        sessionStorage.setItem('cached_workers', JSON.stringify(activeWorkers));
-
-        const attRes = await axios.get(`https://graphite-api.vercel.app/api/attendance?date=${date}&shift=${shift}`);
-        const attMap: Record<string, AttData> = {};
-        attRes.data.forEach((record: any) => {
-          attMap[record.worker_id] = {
-            status: record.status, late_in: record.late_in || false, early_out: record.early_out || false,
-            late_in_time: record.late_in_time || '', early_out_time: record.early_out_time || '', ot_hours: record.ot_hours || ''
-          };
-        });
-        setAttendance(attMap); setError('');
-      } catch (err: any) { setError('Failed to load data from the server.'); } finally { setLoading(false); }
-    };
-    fetchData();
-  }, [date, shift]);
-
-  const updateAttendance = async (worker_id: string, updates: Partial<AttData>) => {
-    const current = attendance[worker_id] || { status: '', late_in: false, early_out: false, late_in_time: '', early_out_time: '', ot_hours: '' };
-    const nextState = { ...current, ...updates };
-    
-    if (!nextState.late_in) nextState.late_in_time = '';
-    if (!nextState.early_out) nextState.early_out_time = '';
-
-    setAttendance(prev => ({ ...prev, [worker_id]: nextState }));
-    
-    try { await axios.post('https://graphite-api.vercel.app/api/attendance', { worker_id, date, shift, ...nextState }); } 
-    catch (err) { alert(`Failed to save attendance for ${worker_id}.`); }
-  };
-
-  const clearAttendance = async (worker_id: string) => {
-    if (!window.confirm('Are you sure you want to completely clear/undo attendance for this employee?')) return;
-    setAttendance(prev => { const copy = { ...prev }; delete copy[worker_id]; return copy; });
-    try { await axios.delete(`https://graphite-api.vercel.app/api/attendance/record?worker_id=${worker_id}&date=${date}&shift=${shift}`); } 
-    catch (err) { alert(`Failed to clear record.`); }
-  };
-
-  const filteredWorkers = workers.filter(w => {
-    if (employeeGroup === 'Regular') return w.category === 'Permanent' || w.category === 'Contact';
-    const isUnassignedCasual = w.category === 'Casual' && (!w.worker_group || w.worker_group.trim() === '');
-    if (shift === 'Day' && isUnassignedCasual) return true;
-    return w.worker_group === employeeGroup;
+let pool;
+if (process.env.DATABASE_URL) {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
   });
-
-  return (
-    <div className="min-h-screen bg-gray-100 p-4 md:p-6">
-      <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        
-        <div className="p-6 border-b border-gray-200 bg-slate-800 text-white flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-3"><ClipboardList className="text-blue-400" size={32} /><h1 className="text-2xl font-black">Daily Attendance Entry</h1></div>
-          <div className="flex flex-wrap gap-4 w-full md:w-auto">
-            <div className="flex items-center gap-2 bg-slate-700 p-2 rounded-lg flex-1 min-w-[150px]"><Calendar size={20} className="text-gray-300" /><input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer w-full" /></div>
-            <div className="flex items-center gap-2 bg-slate-700 p-2 rounded-lg flex-1 min-w-[150px]"><Filter size={20} className="text-gray-300" />
-              <select value={employeeGroup} onChange={handleGroupChange} className="bg-transparent text-white font-bold outline-none cursor-pointer w-full">
-                <option value="Regular" className="text-black">Regulars (Perm/Contact)</option>
-                {casualGroups.map(g => <option key={g} value={g} className="text-black">Casual - {g}</option>)}
-                {casualGroups.length === 0 && <option value="Unassigned Only" className="text-black">Casuals (Unassigned)</option>}
-              </select>
-            </div>
-            <div className="flex items-center gap-2 bg-slate-700 p-2 rounded-lg flex-1 min-w-[150px]"><Clock size={20} className="text-gray-300" />
-              <select value={shift} onChange={e => setShift(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer w-full">
-                {employeeGroup === 'Regular' ? (<><option value="G" className="text-black">G Shift</option><option value="A" className="text-black">Shift A</option><option value="B" className="text-black">Shift B</option><option value="C" className="text-black">Shift C</option></>) : (<><option value="Day" className="text-black">Day Shift</option><option value="Night" className="text-black">Night Shift</option></>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {error && <div className="p-4 bg-red-50 text-red-700 font-bold border-b border-red-100">{error}</div>}
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50 text-gray-700">
-                <th className="p-4 font-bold border-b">ID</th>
-                <th className="p-4 font-bold border-b">Name</th>
-                <th className="p-4 font-bold border-b">Assigned Group</th>
-                <th className="p-4 font-bold border-b text-center">Mark Attendance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">Loading employees...</td></tr> : 
-               filteredWorkers.length === 0 ? <tr><td colSpan={4} className="p-8 text-center font-bold text-gray-500">No employees found for this selection.</td></tr> : 
-               filteredWorkers.map(worker => {
-                 const current = attendance[worker.id] || { status: '', late_in: false, early_out: false };
-                 const isUnassigned = !worker.worker_group || worker.worker_group.trim() === '';
-                 const canHaveOT = worker.category === 'Permanent' || worker.category === 'Contact';
-                 
-                 return (
-                   <tr key={worker.id} className={`border-b transition-colors ${current.status ? 'bg-blue-50/20' : 'hover:bg-gray-50'}`}>
-                     <td className="p-4 font-medium text-gray-900">{worker.id}</td>
-                     <td className="p-4 font-bold text-blue-900">{worker.name}</td>
-                     <td className="p-4">
-                       {isUnassigned ? <span className="px-3 py-1 bg-yellow-100 text-yellow-800 border border-yellow-300 rounded-full text-sm font-bold">Unassigned</span> : <span className="px-3 py-1 bg-green-100 text-green-800 font-bold rounded text-sm border border-green-200">{worker.worker_group}</span>}
-                     </td>
-                     <td className="p-4 flex flex-col items-center gap-2">
-                       <div className="flex justify-center gap-2">
-                         <button onClick={() => updateAttendance(worker.id, { status: 'PRESENT' })} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'PRESENT' ? 'bg-green-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-green-100'}`}>PRESENT</button>
-                         <button onClick={() => updateAttendance(worker.id, { status: 'ABSENT' })} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'ABSENT' ? 'bg-red-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-red-100'}`}>ABSENT</button>
-                         {current.status && (
-                           <button onClick={() => clearAttendance(worker.id)} className="px-3 py-2 rounded-lg bg-gray-200 text-gray-500 hover:bg-red-100 hover:text-red-700 transition-colors" title="Undo / Clear Marking">
-                             <RotateCcw size={20} />
-                           </button>
-                         )}
-                       </div>
-                       
-                       {current.status === 'PRESENT' && (
-                         <div className="flex flex-col gap-2 mt-1 w-full max-w-sm">
-                           <div className="flex items-center justify-between bg-white px-3 py-2 rounded border border-blue-200 shadow-sm">
-                             <label className="flex items-center gap-2 text-sm font-bold text-blue-900 cursor-pointer">
-                               <input type="checkbox" checked={current.late_in} onChange={(e) => updateAttendance(worker.id, { late_in: e.target.checked })} className="w-4 h-4 cursor-pointer accent-blue-600" /> Late In
-                             </label>
-                             {current.late_in && <input type="time" value={current.late_in_time || ''} onChange={(e) => updateAttendance(worker.id, { late_in_time: e.target.value })} className="border border-gray-300 rounded p-1 text-sm font-bold outline-none focus:border-blue-500" />}
-                           </div>
-                           <div className="flex items-center justify-between bg-white px-3 py-2 rounded border border-blue-200 shadow-sm">
-                             <label className="flex items-center gap-2 text-sm font-bold text-blue-900 cursor-pointer">
-                               <input type="checkbox" checked={current.early_out} onChange={(e) => updateAttendance(worker.id, { early_out: e.target.checked })} className="w-4 h-4 cursor-pointer accent-blue-600" /> Early Out
-                             </label>
-                             {current.early_out && <input type="time" value={current.early_out_time || ''} onChange={(e) => updateAttendance(worker.id, { early_out_time: e.target.value })} className="border border-gray-300 rounded p-1 text-sm font-bold outline-none focus:border-blue-500" />}
-                           </div>
-                           {/* NEW: OT Input for Permanent/Contact Only */}
-                           {canHaveOT && (
-                             <div className="flex items-center justify-between bg-purple-50 px-3 py-2 rounded border border-purple-200 shadow-sm">
-                               <label className="text-sm font-bold text-purple-900">OT (Hours)</label>
-                               <input type="number" step="0.5" min="0" placeholder="0" value={current.ot_hours || ''} onChange={(e) => updateAttendance(worker.id, { ot_hours: e.target.value })} className="border border-purple-300 rounded p-1 w-20 text-sm font-bold outline-none focus:border-purple-600" />
-                             </div>
-                           )}
-                         </div>
-                       )}
-                     </td>
-                   </tr>
-                 );
-               })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
 }
+
+const requireDB = (req, res, next) => {
+  if (!pool) return res.status(500).json({ error: 'CRITICAL: DATABASE_URL is missing!' });
+  next();
+};
+
+async function initDB() {
+  if (!pool) return;
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS workers (id TEXT PRIMARY KEY, name TEXT, category TEXT, worker_group TEXT DEFAULT '');`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS attendance (id SERIAL PRIMARY KEY, worker_id TEXT, date TEXT, shift TEXT, status TEXT, late_in BOOLEAN DEFAULT false, early_out BOOLEAN DEFAULT false, CONSTRAINT unique_worker_date_shift UNIQUE (worker_id, date, shift));`);
+    await pool.query(`ALTER TABLE workers ADD COLUMN IF NOT EXISTS date_of_joining TEXT DEFAULT '';`);
+    await pool.query(`ALTER TABLE workers ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;`);
+    await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS late_in_time TEXT DEFAULT '';`);
+    await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS early_out_time TEXT DEFAULT '';`);
+    
+    // NEW: Add Overtime tracking
+    await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS ot_hours NUMERIC DEFAULT 0;`);
+  } catch (err) { console.error(err); }
+}
+initDB();
+
+app.get('/api/workers', requireDB, async (req, res) => {
+  try { res.json((await pool.query('SELECT * FROM workers ORDER BY id')).rows); } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/workers', requireDB, async (req, res) => {
+  try {
+    await pool.query('INSERT INTO workers (id, name, category, worker_group, date_of_joining) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, worker_group = EXCLUDED.worker_group, date_of_joining = EXCLUDED.date_of_joining', [req.body.id, req.body.name, req.body.category, req.body.worker_group || '', req.body.date_of_joining || '']);
+    res.json({ message: 'Saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/workers/bulk', requireDB, async (req, res) => {
+  const defaultDate = new Date().toISOString().split('T')[0];
+  try {
+    for (const w of req.body) await pool.query('INSERT INTO workers (id, name, category, date_of_joining) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category', [w.id, w.name, w.category, w.date_of_joining || defaultDate]);
+    res.json({ message: `Successfully imported ${req.body.length} employees!` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/workers/:id', requireDB, async (req, res) => {
+  try {
+    await pool.query('UPDATE workers SET name = $1, category = $2, worker_group = $3, date_of_joining = $4, is_archived = $5 WHERE id = $6', [req.body.name, req.body.category, req.body.worker_group || '', req.body.date_of_joining || '', req.body.is_archived || false, req.params.id]);
+    res.json({ message: 'Updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/workers/:id', requireDB, async (req, res) => {
+  try {
+    await pool.query('UPDATE workers SET is_archived = true WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Archived successfully' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/attendance', requireDB, async (req, res) => {
+  const { worker_id, date, shift, status, late_in = false, early_out = false, late_in_time = '', early_out_time = '', ot_hours = 0 } = req.body;
+  try {
+    await pool.query(
+      'INSERT INTO attendance (worker_id, date, shift, status, late_in, early_out, late_in_time, early_out_time, ot_hours) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker_id, date, shift) DO UPDATE SET status = EXCLUDED.status, late_in = EXCLUDED.late_in, early_out = EXCLUDED.early_out, late_in_time = EXCLUDED.late_in_time, early_out_time = EXCLUDED.early_out_time, ot_hours = EXCLUDED.ot_hours', 
+      [worker_id, date, shift, status, late_in, early_out, late_in_time, early_out_time, ot_hours || 0]
+    );
+    res.json({ message: 'Saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/attendance/record', requireDB, async (req, res) => {
+  const { worker_id, date, shift } = req.query;
+  try {
+    await pool.query('DELETE FROM attendance WHERE worker_id = $1 AND date = $2 AND shift = $3', [worker_id, date, shift]);
+    res.json({ message: 'Record cleared' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/attendance', requireDB, async (req, res) => {
+  try { res.json((await pool.query('SELECT * FROM attendance WHERE date = $1 AND shift = $2', [req.query.date, req.query.shift])).rows); } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/dashboard-stats', requireDB, async (req, res) => {
+  const { start, end } = req.query;
+  try {
+    const workerRes = await pool.query('SELECT COUNT(*) FROM workers WHERE is_archived = false');
+    const attRes = await pool.query('SELECT status, COUNT(*) FROM attendance WHERE date >= $1 AND date <= $2 GROUP BY status', [start, end]);
+    let present = 0, absent = 0;
+    attRes.rows.forEach(row => {
+      if (row.status === 'PRESENT') present += parseInt(row.count);
+      if (row.status === 'ABSENT') absent += parseInt(row.count);
+    });
+    res.json({ total: parseInt(workerRes.rows[0].count), present, absent });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// NEW: API for expanding Today's shift list
+app.get('/api/dashboard/today-list', requireDB, async (req, res) => {
+  const { date } = req.query;
+  try {
+    const result = await pool.query(`
+      SELECT a.shift, a.status, w.id, w.name, w.worker_group, a.late_in, a.early_out, a.ot_hours 
+      FROM attendance a JOIN workers w ON a.worker_id = w.id 
+      WHERE a.date = $1 ORDER BY w.name
+    `, [date]);
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// NEW: Added OT to Raw Report
+app.get('/api/reports/attendance', requireDB, async (req, res) => {
+  const { start, end } = req.query;
+  try {
+    const result = await pool.query(`SELECT a.date, a.shift, w.id, w.name, w.category, w.worker_group, a.status, a.late_in, a.early_out, a.late_in_time, a.early_out_time, a.ot_hours FROM attendance a JOIN workers w ON a.worker_id = w.id WHERE a.date >= $1 AND a.date <= $2 ORDER BY a.date DESC, a.shift, w.id`, [start, end]);
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// NEW: Added total OT summing to Summary Report
+app.get('/api/reports/employee-summary', requireDB, async (req, res) => {
+  const { start, end } = req.query;
+  try {
+    const result = await pool.query(`
+      SELECT w.id, w.name, w.category, w.worker_group, w.date_of_joining, w.is_archived,
+        COUNT(CASE WHEN a.status = 'PRESENT' THEN 1 END) as total_present,
+        COUNT(CASE WHEN a.status = 'ABSENT' THEN 1 END) as total_absent,
+        COUNT(CASE WHEN a.late_in = true THEN 1 END) as total_late_in,
+        COUNT(CASE WHEN a.early_out = true THEN 1 END) as total_early_out,
+        COALESCE(SUM(a.ot_hours), 0) as total_ot_hours
+      FROM workers w LEFT JOIN attendance a ON w.id = a.worker_id AND a.date >= $1 AND a.date <= $2
+      GROUP BY w.id, w.name, w.category, w.worker_group, w.date_of_joining, w.is_archived ORDER BY w.id
+    `, [start, end]);
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/', (req, res) => res.send('API Live!'));
+if (process.env.NODE_ENV !== 'production') app.listen(PORT, () => console.log(`Server on ${PORT}`));
+
+// NEW EXPORT SYNTAX FOR ES MODULES
+export default app;
