@@ -80,13 +80,21 @@ export default function OperatorEntry() {
     catch (err) { alert(`Failed to clear record.`); }
   };
 
-  const filteredWorkers = workers.filter(w => {
-    if (employeeGroup === 'Regular') return w.category === 'Permanent' || w.category === 'Contact';
-    const isUnassignedCasual = w.category === 'Casual' && (!w.worker_group || w.worker_group.trim() === '');
-    if ((shift === 'Day' || shift === 'Night') && isUnassignedCasual) return true;
-    return w.worker_group === employeeGroup;
-  });
-
+const filteredWorkers = workers
+    .filter(w => {
+      if (employeeGroup === 'Regular') return w.category === 'Permanent' || w.category === 'Contact';
+      const isUnassignedCasual = w.category === 'Casual' && (!w.worker_group || w.worker_group.trim() === '');
+      if ((shift === 'Day' || shift === 'Night') && isUnassignedCasual) return true;
+      return w.worker_group === employeeGroup;
+    })
+    .sort((a, b) => {
+      // 1. Always put Permanent employees at the top
+      if (a.category === 'Permanent' && b.category !== 'Permanent') return -1;
+      if (b.category === 'Permanent' && a.category !== 'Permanent') return 1;
+      
+      // 2. Then sort everyone else alphabetically by their ID (e.g., CCW01, CCW02)
+      return a.id.localeCompare(b.id);
+    });
   return (
     <div className="min-h-screen bg-gray-100 p-4 md:p-6">
       <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
