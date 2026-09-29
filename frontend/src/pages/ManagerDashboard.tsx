@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Users, UserCheck, UserX, Activity, Calendar, FileText, Edit, Clock, Filter, ClipboardList, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Users, UserCheck, UserX, Activity, Calendar, FileText, Edit, Clock, Filter, ClipboardList, RotateCcw, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import ManagerAuth from '../components/ManagerAuth'; 
 
 export default function ManagerDashboard() {
@@ -14,8 +14,19 @@ export default function ManagerDashboard() {
   const [endDate, setEndDate] = useState(getToday());
   const [stats, setStats] = useState({ total: 0, present: 0, absent: 0 });
   const [loading, setLoading] = useState(true);
-  const [todayData, setTodayData] = useState<Record<string, { present: any[], absent: any[] }>>({});
+  
+  // NEW: Custom Date for Shift Viewer
+  const [shiftViewDate, setShiftViewDate] = useState(getToday());
+  const [shiftViewData, setShiftViewData] = useState<Record<string, { present: any[], absent: any[] }>>({});
   const [expandedShifts, setExpandedShifts] = useState<Record<string, boolean>>({});
+
+  // --- HISTORY TAB STATE (NEW) ---
+  const [histStart, setHistStart] = useState(getToday());
+  const [histEnd, setHistEnd] = useState(getToday());
+  const [histEmp, setHistEmp] = useState('');
+  const [histWorkers, setHistWorkers] = useState<any[]>([]);
+  const [histData, setHistData] = useState<any[]>([]);
+  const [histLoading, setHistLoading] = useState(false);
 
   // --- OT REPORT TAB STATE ---
   const [otMonth, setOtMonth] = useState(getCurrentMonth());
@@ -30,6 +41,7 @@ export default function ManagerDashboard() {
   const [modAttendance, setModAttendance] = useState<Record<string, any>>({});
   const [modLoading, setModLoading] = useState(false);
 
+  // FETCH OVERVIEW STATS
   useEffect(() => {
     if (activeTab !== 'Overview') return;
     const fetchStats = async () => {
@@ -37,19 +49,48 @@ export default function ManagerDashboard() {
       try {
         const response = await axios.get(`https://graphite-api.vercel.app/api/dashboard-stats?start=${startDate}&end=${endDate}`);
         setStats(response.data);
-        const todayRes = await axios.get(`https://graphite-api.vercel.app/api/dashboard/today-list?date=${getToday()}`);
-        const grouped = todayRes.data.reduce((acc: any, curr: any) => {
-          if (!acc[curr.shift]) acc[curr.shift] = { present: [], absent: [] };
-          if (curr.status === 'PRESENT') acc[curr.shift].present.push(curr);
-          if (curr.status === 'ABSENT') acc[curr.shift].absent.push(curr);
-          return acc;
-        }, {});
-        setTodayData(grouped);
       } catch (err: any) { console.error(err); } finally { setLoading(false); }
     };
     fetchStats();
   }, [startDate, endDate, activeTab]);
 
+  // FETCH SHIFT VIEW DATA
+  useEffect(() => {
+    if (activeTab !== 'Overview') return;
+    const fetchShiftView = async () => {
+      try {
+        const res = await axios.get(`https://graphite-api.vercel.app/api/dashboard/today-list?date=${shiftViewDate}`);
+        const grouped = res.data.reduce((acc: any, curr: any) => {
+          if (!acc[curr.shift]) acc[curr.shift] = { present: [], absent: [] };
+          if (curr.status === 'PRESENT') acc[curr.shift].present.push(curr);
+          if (curr.status === 'ABSENT') acc[curr.shift].absent.push(curr);
+          return acc;
+        }, {});
+        setShiftViewData(grouped);
+      } catch (err: any) { console.error(err); }
+    };
+    fetchShiftView();
+  }, [shiftViewDate, activeTab]);
+
+  // FETCH EMPLOYEE HISTORY DATA
+  useEffect(() => {
+    if (activeTab !== 'History') return;
+    const fetchHist = async () => {
+      setHistLoading(true);
+      try {
+        if (histWorkers.length === 0) {
+          const wRes = await axios.get('https://graphite-api.vercel.app/api/workers');
+          setHistWorkers(wRes.data);
+          if (!histEmp && wRes.data.length > 0) setHistEmp(wRes.data[0].id);
+        }
+        const res = await axios.get(`https://graphite-api.vercel.app/api/reports/attendance?start=${histStart}&end=${histEnd}`);
+        setHistData(res.data);
+      } catch (err) { console.error(err); } finally { setHistLoading(false); }
+    };
+    fetchHist();
+  }, [histStart, histEnd, activeTab, histWorkers.length, histEmp]);
+
+  // FETCH OT MONTHLY DATA
   useEffect(() => {
     if (activeTab !== 'OT') return;
     const fetchOt = async () => {
@@ -66,6 +107,7 @@ export default function ManagerDashboard() {
     fetchOt();
   }, [otMonth, activeTab]);
 
+  // FETCH MODIFY DATA
   useEffect(() => {
     if (activeTab !== 'Modify') return;
     const fetchModData = async () => {
@@ -165,15 +207,18 @@ export default function ManagerDashboard() {
     return w.worker_group === modGroup;
   });
 
+  const filteredHistory = histData.filter(r => r.id === histEmp);
+
   return (
     <ManagerAuth>
       <div className="min-h-screen bg-gray-100 p-4 md:p-6">
         <div className="max-w-6xl mx-auto">
           
           <div className="flex flex-wrap gap-4 mb-6 border-b border-gray-300 pb-4">
-            <button onClick={() => setActiveTab('Overview')} className={`px-6 py-2 font-black rounded-lg transition-all ${activeTab === 'Overview' ? 'bg-blue-600 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}><Activity size={18} className="inline mr-2 -mt-1" /> Overview</button>
-            <button onClick={() => setActiveTab('Modify')} className={`px-6 py-2 font-black rounded-lg transition-all ${activeTab === 'Modify' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}><Edit size={18} className="inline mr-2 -mt-1" /> Edit Logs</button>
-            <button onClick={() => setActiveTab('OT')} className={`px-6 py-2 font-black rounded-lg transition-all ${activeTab === 'OT' ? 'bg-orange-500 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}><Clock size={18} className="inline mr-2 -mt-1" /> Monthly OT Report</button>
+            <button onClick={() => setActiveTab('Overview')} className={`px-5 py-2 font-black rounded-lg transition-all ${activeTab === 'Overview' ? 'bg-blue-600 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}><Activity size={18} className="inline mr-2 -mt-1" /> Overview</button>
+            <button onClick={() => setActiveTab('History')} className={`px-5 py-2 font-black rounded-lg transition-all ${activeTab === 'History' ? 'bg-teal-600 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}><Search size={18} className="inline mr-2 -mt-1" /> Employee History</button>
+            <button onClick={() => setActiveTab('Modify')} className={`px-5 py-2 font-black rounded-lg transition-all ${activeTab === 'Modify' ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}><Edit size={18} className="inline mr-2 -mt-1" /> Edit Logs</button>
+            <button onClick={() => setActiveTab('OT')} className={`px-5 py-2 font-black rounded-lg transition-all ${activeTab === 'OT' ? 'bg-orange-500 text-white shadow-md scale-105' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}><Clock size={18} className="inline mr-2 -mt-1" /> Monthly OT</button>
           </div>
 
           {/* OVERVIEW TAB */}
@@ -203,14 +248,21 @@ export default function ManagerDashboard() {
                  <div className="bg-white p-6 rounded-xl shadow-sm flex items-center gap-4"><div className="p-4 bg-red-100 rounded-lg text-red-600"><UserX size={32} /></div><div><p className="text-gray-500 font-bold uppercase text-sm">Absent in Range</p><h2 className="text-4xl font-black text-gray-800">{loading ? '...' : stats.absent}</h2></div></div>
                </div>
 
-               {/* Today's Expandable Shift List */}
+               {/* NEW: Shift Viewer with Date Picker */}
                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mt-8">
-                 <h3 className="text-xl font-black text-gray-800 mb-4 border-b pb-2 flex items-center gap-2"><Clock size={24} className="text-blue-600"/> Today's Attendance by Shift</h3>
-                 {Object.keys(todayData).length === 0 ? (
-                   <p className="text-gray-500 font-bold">No attendance marked for today yet.</p>
+                 <div className="flex flex-col md:flex-row justify-between items-center mb-4 border-b pb-4 gap-4">
+                   <h3 className="text-xl font-black text-gray-800 flex items-center gap-2"><Clock size={24} className="text-blue-600"/> Daily Shift-wise Attendance</h3>
+                   <div className="flex items-center gap-2 bg-blue-50 p-2 rounded-lg border border-blue-200">
+                     <Calendar size={20} className="text-blue-600" />
+                     <input type="date" value={shiftViewDate} onChange={e => setShiftViewDate(e.target.value)} className="bg-transparent font-bold text-blue-900 outline-none cursor-pointer" />
+                   </div>
+                 </div>
+                 
+                 {Object.keys(shiftViewData).length === 0 ? (
+                   <p className="text-gray-500 font-bold text-center p-4">No attendance marked for {shiftViewDate}.</p>
                  ) : (
                    <div className="space-y-4">
-                     {Object.entries(todayData).map(([shiftName, data]) => (
+                     {Object.entries(shiftViewData).map(([shiftName, data]) => (
                        <div key={shiftName} className="border border-gray-200 rounded-lg overflow-hidden">
                          <button onClick={() => toggleShiftExpand(shiftName)} className="w-full flex justify-between items-center p-4 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
                            <span className="font-black text-lg text-slate-800">Shift: {shiftName}</span>
@@ -249,6 +301,61 @@ export default function ManagerDashboard() {
                    </div>
                  )}
                </div>
+             </div>
+          )}
+
+          {/* NEW: EMPLOYEE HISTORY TAB */}
+          {activeTab === 'History' && (
+             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-fadeIn p-6">
+                <div className="flex items-center gap-3 mb-6 border-b border-gray-200 pb-4"><Search className="text-teal-600" size={32} /><h1 className="text-2xl font-black text-gray-800">Employee History Viewer</h1></div>
+                
+                <div className="flex flex-wrap gap-4 w-full bg-teal-50 p-4 rounded-lg border border-teal-200 mb-6">
+                  <div className="flex items-center gap-2 flex-1 min-w-[150px]"><Calendar size={20} className="text-teal-700" /><input type="date" value={histStart} onChange={e => setHistStart(e.target.value)} className="bg-transparent font-bold outline-none cursor-pointer w-full"/></div>
+                  <span className="font-black text-teal-800 pt-1">TO</span>
+                  <div className="flex items-center gap-2 flex-1 min-w-[150px]"><Calendar size={20} className="text-teal-700" /><input type="date" value={histEnd} onChange={e => setHistEnd(e.target.value)} className="bg-transparent font-bold outline-none cursor-pointer w-full"/></div>
+                  
+                  <div className="flex items-center gap-2 flex-1 min-w-[200px] border-l border-teal-300 pl-4">
+                    <Users size={20} className="text-teal-700" />
+                    <select value={histEmp} onChange={e => setHistEmp(e.target.value)} className="bg-transparent font-bold outline-none cursor-pointer w-full">
+                      {histWorkers.map(w => <option key={w.id} value={w.id}>{w.name} ({w.id})</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 text-gray-700">
+                        <th className="p-4 font-bold border-b">Date</th>
+                        <th className="p-4 font-bold border-b">Shift</th>
+                        <th className="p-4 font-bold border-b">Status</th>
+                        <th className="p-4 font-bold border-b">Time Tracking</th>
+                        <th className="p-4 font-bold border-b text-right text-purple-600">OT Hours</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {histLoading ? <tr><td colSpan={5} className="p-8 text-center font-bold text-gray-500">Loading history...</td></tr> :
+                       filteredHistory.length === 0 ? <tr><td colSpan={5} className="p-8 text-center font-bold text-gray-500">No attendance records found for this date range.</td></tr> :
+                       filteredHistory.map((r, i) => (
+                         <tr key={i} className="border-b hover:bg-gray-50 transition-colors">
+                           <td className="p-4 font-bold text-gray-900">{r.date}</td>
+                           <td className="p-4 font-bold text-gray-700">{r.shift}</td>
+                           <td className="p-4">
+                             {r.status === 'PRESENT' ? <span className="text-green-700 bg-green-100 px-2 py-1 rounded font-bold text-sm">PRESENT</span> : <span className="text-red-700 bg-red-100 px-2 py-1 rounded font-bold text-sm">ABSENT</span>}
+                           </td>
+                           <td className="p-4">
+                             <div className="flex flex-col gap-1 text-sm">
+                               {r.late_in && <span className="text-orange-700 font-bold">Late In: {r.late_in_time}</span>}
+                               {r.early_out && <span className="text-blue-700 font-bold">Early Out: {r.early_out_time}</span>}
+                               {!r.late_in && !r.early_out && <span className="text-gray-400 italic">Standard</span>}
+                             </div>
+                           </td>
+                           <td className="p-4 font-black text-right text-purple-600">{r.ot_hours > 0 ? r.ot_hours : '-'}</td>
+                         </tr>
+                       ))}
+                    </tbody>
+                  </table>
+                </div>
              </div>
           )}
 

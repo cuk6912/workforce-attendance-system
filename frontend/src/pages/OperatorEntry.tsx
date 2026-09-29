@@ -6,19 +6,35 @@ interface Worker { id: string; name: string; category: string; worker_group?: st
 interface AttData { status: string; late_in: boolean; early_out: boolean; late_in_time?: string; early_out_time?: string; ot_hours?: string | number; }
 
 export default function OperatorEntry() {
+  // NEW: Auto-Shift Logic based on exact time boundaries
+  const getAutoShift = (group: string) => {
+    const now = new Date();
+    const time = now.getHours() + (now.getMinutes() / 60); // e.g. 6:30 AM = 6.5
+    
+    if (group === 'Regular') {
+      if (time >= 6.5 && time < 15) return 'A';         // 06:30 to 15:00
+      if (time >= 15 && time < 23.5) return 'B';        // 15:00 to 23:30
+      return 'C';                                       // 23:30 to 06:30
+    } else {
+      if (time >= 6.5 && time < 18.5) return 'Day';     // 06:30 to 18:30
+      return 'Night';                                   // 18:30 to 06:30
+    }
+  };
+
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [attendance, setAttendance] = useState<Record<string, AttData>>({});
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [employeeGroup, setEmployeeGroup] = useState('Regular'); 
-  const [shift, setShift] = useState('G');
+  const [shift, setShift] = useState(getAutoShift('Regular')); // Auto-set on load
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const casualGroups = Array.from(new Set(workers.filter(w => w.category === 'Casual' && w.worker_group).map(w => w.worker_group as string))).sort();
 
   const handleGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const group = e.target.value; setEmployeeGroup(group);
-    if (group !== 'Regular') setShift('Day'); else setShift('G');
+    const group = e.target.value; 
+    setEmployeeGroup(group);
+    setShift(getAutoShift(group)); // Auto-set when switching groups
   };
 
   useEffect(() => {
@@ -67,7 +83,7 @@ export default function OperatorEntry() {
   const filteredWorkers = workers.filter(w => {
     if (employeeGroup === 'Regular') return w.category === 'Permanent' || w.category === 'Contact';
     const isUnassignedCasual = w.category === 'Casual' && (!w.worker_group || w.worker_group.trim() === '');
-    if (shift === 'Day' && isUnassignedCasual) return true;
+    if ((shift === 'Day' || shift === 'Night') && isUnassignedCasual) return true;
     return w.worker_group === employeeGroup;
   });
 
@@ -87,7 +103,7 @@ export default function OperatorEntry() {
             </div>
             <div className="flex items-center gap-2 bg-slate-700 p-2 rounded-lg flex-1 min-w-[150px]"><Clock size={20} className="text-gray-300" />
               <select value={shift} onChange={e => setShift(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer w-full">
-                {employeeGroup === 'Regular' ? (<><option value="G" className="text-black">G Shift</option><option value="A" className="text-black">Shift A</option><option value="B" className="text-black">Shift B</option><option value="C" className="text-black">Shift C</option></>) : (<><option value="Day" className="text-black">Day Shift</option><option value="Night" className="text-black">Night Shift</option></>)}
+                {employeeGroup === 'Regular' ? (<><option value="A" className="text-black">Shift A</option><option value="G" className="text-black">G Shift</option><option value="B" className="text-black">Shift B</option><option value="C" className="text-black">Shift C</option></>) : (<><option value="Day" className="text-black">Day Shift</option><option value="Night" className="text-black">Night Shift</option></>)}
               </select>
             </div>
           </div>
@@ -143,8 +159,6 @@ export default function OperatorEntry() {
                              </label>
                              {current.early_out && <input type="time" value={current.early_out_time || ''} onChange={(e) => updateAttendance(worker.id, { early_out_time: e.target.value })} className="border border-gray-300 rounded p-1 text-sm font-bold outline-none" />}
                            </div>
-                           
-                           {/* MANAGER AND OPERATOR CAN ENTER OT HOURS */}
                            {canHaveOT && (
                              <div className="flex items-center justify-between bg-purple-50 px-3 py-2 rounded border border-purple-200 shadow-sm">
                                <label className="text-sm font-bold text-purple-900">OT (Hours)</label>
