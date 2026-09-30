@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-// Notice the new "Lock" and "Save" icons imported below
 import { ClipboardList, Calendar, Clock, Filter, RotateCcw, Lock, Save } from 'lucide-react';
 
 interface Worker { id: string; name: string; category: string; worker_group?: string; }
@@ -26,7 +25,6 @@ export default function OperatorEntry() {
   const [employeeGroup, setEmployeeGroup] = useState('Regular'); 
   const [shift, setShift] = useState(getAutoShift('Regular')); 
   
-  // NEW: State to track if the current shift is locked
   const [isLocked, setIsLocked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -41,7 +39,6 @@ export default function OperatorEntry() {
 
   useEffect(() => {
     const fetchData = async () => {
-      // Instantly assume it's loading and not locked when switching filters
       setIsLocked(false);
       const cachedWorkers = sessionStorage.getItem('cached_workers');
       if (cachedWorkers) { setWorkers(JSON.parse(cachedWorkers)); setLoading(false); } else { setLoading(true); }
@@ -52,7 +49,6 @@ export default function OperatorEntry() {
         setWorkers(activeWorkers);
         sessionStorage.setItem('cached_workers', JSON.stringify(activeWorkers));
 
-        // Fetch Attendance
         const attRes = await axios.get(`https://graphite-api.vercel.app/api/attendance?date=${date}&shift=${shift}`);
         const attMap: Record<string, AttData> = {};
         attRes.data.forEach((record: any) => {
@@ -63,31 +59,41 @@ export default function OperatorEntry() {
         });
         setAttendance(attMap);
 
-        // NEW: Fetch Lock Status
         const lockRes = await axios.get(`https://graphite-api.vercel.app/api/shift-lock?date=${date}&shift=${shift}&group=${employeeGroup}`);
         setIsLocked(lockRes.data.isLocked);
-        
         setError('');
       } catch (err: any) { setError('Failed to load data from the server.'); } finally { setLoading(false); }
     };
     fetchData();
   }, [date, shift, employeeGroup]);
 
-  // NEW: Function to lock the shift
   const handleLockShift = async () => {
-    if (!window.confirm(`Are you sure you want to Save & Lock attendance for ${employeeGroup} on ${date} (Shift: ${shift})? You will not be able to make further changes.`)) return;
+    if (!window.confirm(`Are you sure you want to Save & Lock initial attendance for ${employeeGroup} on ${date} (Shift: ${shift})?`)) return;
     try {
       await axios.post('https://graphite-api.vercel.app/api/shift-lock', { date, shift, group: employeeGroup, is_locked: true });
       setIsLocked(true);
-      alert('Shift locked successfully! Only managers can modify these records now.');
+      alert('Shift locked successfully! Operators can now only modify Late In, Early Out, OT, or change Absent to Present.');
     } catch (err) { alert('Failed to lock shift.'); }
   };
 
   const updateAttendance = async (worker_id: string, updates: Partial<AttData>) => {
-    if (isLocked) return; // Extra layer of protection
     const current = attendance[worker_id] || { status: '', late_in: false, early_out: false, late_in_time: '', early_out_time: '', ot_hours: '' };
-    const nextState = { ...current, ...updates };
     
+    // NEW LOGIC: Allow specific updates even if locked
+    if (isLocked) {
+      const isAllowedEdit = 
+        (current.status !== 'PRESENT' && updates.status === 'PRESENT') ||
+        updates.late_in !== undefined || updates.late_in_time !== undefined || 
+        updates.early_out !== undefined || updates.early_out_time !== undefined || 
+        updates.ot_hours !== undefined;
+
+      if (!isAllowedEdit) {
+        alert("This shift is locked. You can only mark Late In, Early Out, OT, or change Absent to Present.");
+        return;
+      }
+    }
+
+    const nextState = { ...current, ...updates };
     if (!nextState.late_in) nextState.late_in_time = '';
     if (!nextState.early_out) nextState.early_out_time = '';
 
@@ -97,7 +103,7 @@ export default function OperatorEntry() {
   };
 
   const clearAttendance = async (worker_id: string) => {
-    if (isLocked) return; // Extra layer of protection
+    if (isLocked) return alert("You cannot clear/undo records on a locked shift."); 
     if (!window.confirm('Are you sure you want to clear attendance?')) return;
     setAttendance(prev => { const copy = { ...prev }; delete copy[worker_id]; return copy; });
     try { await axios.delete(`https://graphite-api.vercel.app/api/attendance/record?worker_id=${worker_id}&date=${date}&shift=${shift}`); } 
@@ -140,19 +146,18 @@ export default function OperatorEntry() {
           </div>
         </div>
 
-        {/* NEW: Lock & Save Banner */}
-        <div className={`p-4 border-b flex flex-col md:flex-row justify-between items-center gap-4 ${isLocked ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+        <div className={`p-4 border-b flex flex-col md:flex-row justify-between items-center gap-4 ${isLocked ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex-1">
             {isLocked ? (
-              <p className="text-red-700 font-bold flex items-center gap-2"><Lock size={20}/> This shift's attendance has been securely locked. No further changes can be made.</p>
+              <p className="text-orange-800 font-bold flex items-center gap-2"><Lock size={20}/> Shift Locked. You can still mark Late In, Early Out, OT, or update Absent to Present. Edits auto-save instantly.</p>
             ) : (
-              <p className="text-gray-600 font-bold">Please ensure all entries are accurate. Once saved and locked, only Managers can modify these records.</p>
+              <p className="text-gray-600 font-bold">Please ensure all entries are accurate. Once locked, bulk changes are restricted.</p>
             )}
           </div>
           <div>
             {isLocked ? (
-              <div className="bg-red-100 text-red-800 font-black px-6 py-2 rounded-lg border border-red-300 shadow-sm flex items-center gap-2 cursor-not-allowed opacity-80">
-                <Lock size={20}/> RECORD LOCKED
+              <div className="bg-orange-100 text-orange-800 font-black px-6 py-2 rounded-lg border border-orange-300 shadow-sm flex items-center gap-2">
+                <Lock size={20}/> INITIAL SHIFT LOCKED
               </div>
             ) : (
               <button onClick={handleLockShift} className="bg-green-600 hover:bg-green-700 text-white font-black px-6 py-2 rounded-lg shadow-md transition-colors flex items-center gap-2 cursor-pointer">
@@ -182,6 +187,10 @@ export default function OperatorEntry() {
                  const isUnassigned = !worker.worker_group || worker.worker_group.trim() === '';
                  const canHaveOT = worker.category === 'Permanent' || worker.category === 'Contact';
                  
+                 // Dynamic UI locks
+                 const disablePresent = isLocked && current.status === 'PRESENT';
+                 const disableAbsent = isLocked;
+                 
                  return (
                    <tr key={worker.id} className={`border-b transition-colors ${current.status ? 'bg-blue-50/20' : 'hover:bg-gray-50'}`}>
                      <td className="p-4 font-medium text-gray-900">{worker.id}</td>
@@ -191,9 +200,8 @@ export default function OperatorEntry() {
                      </td>
                      <td className="p-4 flex flex-col items-center gap-2">
                        <div className="flex justify-center gap-2">
-                         {/* DISABLED STATUS ADDED TO BUTTONS IF isLocked IS TRUE */}
-                         <button onClick={() => updateAttendance(worker.id, { status: 'PRESENT' })} disabled={isLocked} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'PRESENT' ? 'bg-green-600 text-white shadow-md' : 'bg-gray-200 text-gray-600'} ${isLocked ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-100 cursor-pointer'}`}>PRESENT</button>
-                         <button onClick={() => updateAttendance(worker.id, { status: 'ABSENT' })} disabled={isLocked} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'ABSENT' ? 'bg-red-600 text-white shadow-md' : 'bg-gray-200 text-gray-600'} ${isLocked ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100 cursor-pointer'}`}>ABSENT</button>
+                         <button onClick={() => updateAttendance(worker.id, { status: 'PRESENT' })} disabled={disablePresent} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'PRESENT' ? 'bg-green-600 text-white shadow-md' : 'bg-gray-200 text-gray-600'} ${disablePresent ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-100 cursor-pointer'}`}>PRESENT</button>
+                         <button onClick={() => updateAttendance(worker.id, { status: 'ABSENT' })} disabled={disableAbsent} className={`px-4 py-2 rounded-lg font-black transition-all ${current.status === 'ABSENT' ? 'bg-red-600 text-white shadow-md' : 'bg-gray-200 text-gray-600'} ${disableAbsent ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100 cursor-pointer'}`}>ABSENT</button>
                          {current.status && !isLocked && (
                            <button onClick={() => clearAttendance(worker.id)} className="px-3 py-2 rounded-lg bg-gray-200 text-gray-500 hover:bg-red-100 hover:text-red-700 transition-colors cursor-pointer" title="Undo"><RotateCcw size={20} /></button>
                          )}
@@ -201,22 +209,22 @@ export default function OperatorEntry() {
                        
                        {current.status === 'PRESENT' && (
                          <div className="flex flex-col gap-2 mt-1 w-full max-w-sm">
-                           <div className={`flex items-center justify-between px-3 py-2 rounded border shadow-sm ${isLocked ? 'bg-gray-100 border-gray-200' : 'bg-white border-blue-200'}`}>
-                             <label className={`flex items-center gap-2 text-sm font-bold text-blue-900 ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                               <input type="checkbox" checked={current.late_in} disabled={isLocked} onChange={(e) => updateAttendance(worker.id, { late_in: e.target.checked })} className={`w-4 h-4 accent-blue-600 ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`} /> Late In
+                           <div className="flex items-center justify-between px-3 py-2 rounded border shadow-sm bg-white border-blue-200">
+                             <label className="flex items-center gap-2 text-sm font-bold text-blue-900 cursor-pointer">
+                               <input type="checkbox" checked={current.late_in} onChange={(e) => updateAttendance(worker.id, { late_in: e.target.checked })} className="w-4 h-4 accent-blue-600 cursor-pointer" /> Late In
                              </label>
-                             {current.late_in && <input type="time" disabled={isLocked} value={current.late_in_time || ''} onChange={(e) => updateAttendance(worker.id, { late_in_time: e.target.value })} className={`border border-gray-300 rounded p-1 text-sm font-bold outline-none ${isLocked ? 'bg-gray-100 cursor-not-allowed text-gray-500' : 'bg-white'}`} />}
+                             {current.late_in && <input type="time" value={current.late_in_time || ''} onChange={(e) => updateAttendance(worker.id, { late_in_time: e.target.value })} className="border border-gray-300 rounded p-1 text-sm font-bold outline-none bg-white" />}
                            </div>
-                           <div className={`flex items-center justify-between px-3 py-2 rounded border shadow-sm ${isLocked ? 'bg-gray-100 border-gray-200' : 'bg-white border-blue-200'}`}>
-                             <label className={`flex items-center gap-2 text-sm font-bold text-blue-900 ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                               <input type="checkbox" checked={current.early_out} disabled={isLocked} onChange={(e) => updateAttendance(worker.id, { early_out: e.target.checked })} className={`w-4 h-4 accent-blue-600 ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`} /> Early Out
+                           <div className="flex items-center justify-between px-3 py-2 rounded border shadow-sm bg-white border-blue-200">
+                             <label className="flex items-center gap-2 text-sm font-bold text-blue-900 cursor-pointer">
+                               <input type="checkbox" checked={current.early_out} onChange={(e) => updateAttendance(worker.id, { early_out: e.target.checked })} className="w-4 h-4 accent-blue-600 cursor-pointer" /> Early Out
                              </label>
-                             {current.early_out && <input type="time" disabled={isLocked} value={current.early_out_time || ''} onChange={(e) => updateAttendance(worker.id, { early_out_time: e.target.value })} className={`border border-gray-300 rounded p-1 text-sm font-bold outline-none ${isLocked ? 'bg-gray-100 cursor-not-allowed text-gray-500' : 'bg-white'}`} />}
+                             {current.early_out && <input type="time" value={current.early_out_time || ''} onChange={(e) => updateAttendance(worker.id, { early_out_time: e.target.value })} className="border border-gray-300 rounded p-1 text-sm font-bold outline-none bg-white" />}
                            </div>
                            {canHaveOT && (
-                             <div className={`flex items-center justify-between px-3 py-2 rounded border shadow-sm ${isLocked ? 'bg-gray-100 border-gray-200' : 'bg-purple-50 border-purple-200'}`}>
-                               <label className={`text-sm font-bold ${isLocked ? 'text-gray-500' : 'text-purple-900'}`}>OT (Hours)</label>
-                               <input type="number" step="0.5" min="0" placeholder="0" disabled={isLocked} value={current.ot_hours || ''} onChange={(e) => updateAttendance(worker.id, { ot_hours: e.target.value })} className={`border rounded p-1 w-20 text-sm font-bold outline-none ${isLocked ? 'bg-gray-100 border-gray-300 cursor-not-allowed text-gray-500' : 'border-purple-300 focus:border-purple-600 bg-white'}`} />
+                             <div className="flex items-center justify-between px-3 py-2 rounded border shadow-sm bg-purple-50 border-purple-200">
+                               <label className="text-sm font-bold text-purple-900">OT (Hours)</label>
+                               <input type="number" step="0.5" min="0" placeholder="0" value={current.ot_hours || ''} onChange={(e) => updateAttendance(worker.id, { ot_hours: e.target.value })} className="border border-purple-300 rounded p-1 w-20 text-sm font-bold outline-none focus:border-purple-600 bg-white" />
                              </div>
                            )}
                          </div>
