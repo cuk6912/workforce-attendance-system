@@ -33,12 +33,31 @@ async function initDB() {
     await pool.query(`ALTER TABLE workers ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false;`);
     await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS late_in_time TEXT DEFAULT '';`);
     await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS early_out_time TEXT DEFAULT '';`);
-    
-    // NEW: Add Overtime tracking
     await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS ot_hours NUMERIC DEFAULT 0;`);
+    
+    // NEW: Table to track locked shifts
+    await pool.query(`CREATE TABLE IF NOT EXISTS shift_locks (date TEXT, shift TEXT, group_name TEXT, is_locked BOOLEAN DEFAULT true, PRIMARY KEY (date, shift, group_name));`);
   } catch (err) { console.error(err); }
 }
 initDB();
+
+// --- NEW LOCKING APIs ---
+app.get('/api/shift-lock', requireDB, async (req, res) => {
+  try {
+    const { date, shift, group } = req.query;
+    const result = await pool.query('SELECT is_locked FROM shift_locks WHERE date = $1 AND shift = $2 AND group_name = $3', [date, shift, group]);
+    res.json({ isLocked: result.rows.length > 0 ? result.rows[0].is_locked : false });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/shift-lock', requireDB, async (req, res) => {
+  try {
+    const { date, shift, group, is_locked } = req.body;
+    await pool.query('INSERT INTO shift_locks (date, shift, group_name, is_locked) VALUES ($1, $2, $3, $4) ON CONFLICT (date, shift, group_name) DO UPDATE SET is_locked = EXCLUDED.is_locked', [date, shift, group, is_locked]);
+    res.json({ message: 'Lock status updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// ------------------------
 
 app.get('/api/workers', requireDB, async (req, res) => {
   try { res.json((await pool.query('SELECT * FROM workers ORDER BY id')).rows); } catch (err) { res.status(500).json({ error: err.message }); }
@@ -110,7 +129,6 @@ app.get('/api/dashboard-stats', requireDB, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// NEW: API for expanding Today's shift list
 app.get('/api/dashboard/today-list', requireDB, async (req, res) => {
   const { date } = req.query;
   try {
@@ -123,7 +141,6 @@ app.get('/api/dashboard/today-list', requireDB, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// NEW: Added OT to Raw Report
 app.get('/api/reports/attendance', requireDB, async (req, res) => {
   const { start, end } = req.query;
   try {
@@ -132,7 +149,6 @@ app.get('/api/reports/attendance', requireDB, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// NEW: Added total OT summing to Summary Report
 app.get('/api/reports/employee-summary', requireDB, async (req, res) => {
   const { start, end } = req.query;
   try {
@@ -152,6 +168,4 @@ app.get('/api/reports/employee-summary', requireDB, async (req, res) => {
 
 app.get('/', (req, res) => res.send('API Live!'));
 if (process.env.NODE_ENV !== 'production') app.listen(PORT, () => console.log(`Server on ${PORT}`));
-
-// NEW EXPORT SYNTAX FOR ES MODULES
 export default app;
