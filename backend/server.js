@@ -1,9 +1,7 @@
-import dotenv from 'dotenv';
-dotenv.config();
-import express from 'express';
-import pg from 'pg';
-const { Pool } = pg;
-import cors from 'cors';
+require('dotenv').config();
+const express = require('express');
+const { Pool } = require('pg');
+const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -35,13 +33,12 @@ async function initDB() {
     await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS early_out_time TEXT DEFAULT '';`);
     await pool.query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS ot_hours NUMERIC DEFAULT 0;`);
     
-    // NEW: Table to track locked shifts
+    // Create the locks table safely
     await pool.query(`CREATE TABLE IF NOT EXISTS shift_locks (date TEXT, shift TEXT, group_name TEXT, is_locked BOOLEAN DEFAULT true, PRIMARY KEY (date, shift, group_name));`);
   } catch (err) { console.error(err); }
 }
 initDB();
 
-// --- NEW LOCKING APIs ---
 app.get('/api/shift-lock', requireDB, async (req, res) => {
   try {
     const { date, shift, group } = req.query;
@@ -57,7 +54,6 @@ app.post('/api/shift-lock', requireDB, async (req, res) => {
     res.json({ message: 'Lock status updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-// ------------------------
 
 app.get('/api/workers', requireDB, async (req, res) => {
   try { res.json((await pool.query('SELECT * FROM workers ORDER BY id')).rows); } catch (err) { res.status(500).json({ error: err.message }); }
@@ -168,4 +164,4 @@ app.get('/api/reports/employee-summary', requireDB, async (req, res) => {
 
 app.get('/', (req, res) => res.send('API Live!'));
 if (process.env.NODE_ENV !== 'production') app.listen(PORT, () => console.log(`Server on ${PORT}`));
-export default app;
+module.exports = app;
